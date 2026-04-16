@@ -21,6 +21,7 @@ const fs = require("fs");
 
 // --- IMPORT HANDLER & SCHEDULER ---
 const { handleMessages } = require('./handler'); 
+const { handleEmergency } = require('./features/safety'); // <-- UPDATE: Import fitur safety
 const { 
     initQuizScheduler, 
     initJadwalBesokScheduler, 
@@ -265,8 +266,20 @@ async function start() {
                 
                 stats.pesanMasuk++;
                 const senderName = msg.pushName || 'User';
+
+                // --- UPDATE: Logic Safety Check ---
+                const body = msg.message?.conversation || 
+                             msg.message?.extendedTextMessage?.text || 
+                             msg.message?.imageMessage?.caption || "";
+
+                const isEmergency = await handleEmergency(sock, msg, body);
+                if (isEmergency) {
+                    addLog(`🚨 KODE DARURAT DIPICU OLEH: ${senderName}`);
+                    return; 
+                }
+                // ----------------------------------
+
                 addLog(`📩 Pesan masuk dari: ${senderName}`);
-                
                 await handleMessages(sock, m, botConfig, botUtils, safeSend);
             }
         });
