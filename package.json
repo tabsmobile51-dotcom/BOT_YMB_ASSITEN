@@ -1,4 +1,12 @@
-"dependencies": {
+{
+  "name": "wa-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp Bot dengan Asisten AI",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
     "pino": "^9.1.0",
     "express": "^4.19.2",
@@ -7,3 +15,4 @@
     "axios": "^1.6.8",
     "form-data": "^4.0.0"
   }
+}
