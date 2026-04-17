@@ -97,11 +97,15 @@ async function initSahurScheduler(sock, botConfig) {
 }
 
 // --- QUIZ ---
-async function initQuizScheduler(sock, botConfig) {
+async function initQuizScheduler(sock, botConfig, getConnected) {
     console.log("✅ Scheduler Polling Aktif (Menyesuaikan Hari & Jam)");
 
     setInterval(async () => {
         if (!botConfig || botConfig.quiz === false) return;
+
+        // Guard: skip jika koneksi belum siap
+        if (getConnected && !getConnected()) return;
+
         const now = getWIBDate();
         const jam = now.getHours();
         const menit = now.getMinutes();
@@ -141,7 +145,14 @@ async function initQuizScheduler(sock, botConfig) {
                         writeLastSent({ ...lastSent, [tglID]: true });
                     }
                 }
-            } catch (err) { console.error("Quiz Error:", err); }
+            } catch (err) {
+                if (err.message === 'Connection Closed') {
+                    console.error("Quiz: Koneksi putus, akan dicoba lagi interval berikutnya");
+                    // Tidak writeLastSent agar retry di interval berikutnya
+                } else {
+                    console.error("Quiz Error:", err);
+                }
+            }
         }
     }, 35000);
 }
