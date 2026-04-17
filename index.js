@@ -249,7 +249,7 @@ async function start() {
                 startKeepAlive();
 
                 if (!schedulerInitialized) {
-                    initQuizScheduler(sock, botConfig, safeSend); 
+                    initQuizScheduler(sock, botConfig, () => isConnected);
                     initJadwalBesokScheduler(sock, botConfig, safeSend);
                     initSmartFeedbackScheduler(sock, botConfig, safeSend);
                     initListPrMingguanScheduler(sock, botConfig, safeSend);
