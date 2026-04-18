@@ -202,8 +202,11 @@ async function start() {
 
         sock = makeWASocket({
             version,
-            // FIX: Menggunakan 'state' langsung agar keys sinkron dengan disk
-            auth: state,
+            // FIX: Menggunakan makeCacheableSignalKeyStore agar keys tidak corrupt
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" }))
+            },
             printQRInTerminal: false,
             logger: pino({ level: "silent" }),
             browser: ["Ubuntu", "Firefox", "20.0.0"],
