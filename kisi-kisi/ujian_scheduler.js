@@ -1,31 +1,46 @@
-const { buatTeksKisi } = require('./ujian_logic');
+const { buatTeksKisi, buatTeksKisiFull } = require('./ujian_logic');
 const { ID_GRUP_TUJUAN } = require('./kisi_constants');
 
-// Nama fungsi diubah menjadi initUjianScheduler agar sesuai dengan pemanggilan di index.js
+/**
+ * SCHEDULER OTOMATIS KISI-KISI
+ * Aturan:
+ * - Sabtu Jam 08:00: Kirim Full (Senin-Jumat) ke Grup
+ * - Minggu-Kamis Jam 12:00: Kirim Harian ke Grup
+ */
+
 async function initUjianScheduler(sock, ID_PRIBADI, botConfig) {
-    console.log("✅ Scheduler Kisi-Kisi Aktif");
+    console.log("✅ Scheduler Kisi-Kisi Aktif (Group Only)");
 
     setInterval(async () => {
-        // Cek apakah fitur diaktifkan di botConfig (Dashboard)
+        // Cek apakah fitur diaktifkan
         if (botConfig && !botConfig.kisiUjian) return;
 
         const now = new Date();
+        const hari = now.getDay(); // 0=Minggu, 1=Senin, ..., 6=Sabtu
         const jam = now.getHours();
         const menit = now.getMinutes();
 
-        // Kirim ke Grup Tujuan jam 17:00 WIB
-        if (jam === 17 && menit === 0) {
-            const teks = await buatTeksKisi();
-            await sock.sendMessage(ID_GRUP_TUJUAN, { text: teks });
+        // --- LOGIKA HARI SABTU (JAM 08:00 PAGI) ---
+        // Kirim Rekap Full Senin sampai Jumat ke Grup
+        if (hari === 6 && jam === 8 && menit === 0) {
+            const teksFull = await buatTeksKisiFull();
+            await sock.sendMessage(ID_GRUP_TUJUAN, { 
+                text: "🚀 *REKAP KISI-KISI MINGGUAN*\n_Khusus persiapan satu minggu ke depan_\n\n" + teksFull 
+            });
+            console.log("Log: Kisi-kisi Full terkirim ke Grup (Sabtu)");
         }
 
-        // Kirim ke Pribadi jam 20:00 WIB
-        if (jam === 20 && menit === 0) {
-            const teks = await buatTeksKisi();
-            await sock.sendMessage(ID_PRIBADI, { text: "🔔 *PENGINGAT UJIAN*\n\n" + teks });
+        // --- LOGIKA MINGGU SAMPAI KAMIS (JAM 12:00 SIANG) ---
+        // Kirim Harian ke Grup
+        if (hari >= 0 && hari <= 4 && jam === 12 && menit === 0) {
+            const teksHarian = await buatTeksKisi();
+            await sock.sendMessage(ID_GRUP_TUJUAN, { 
+                text: "📖 *PENGINGAT KISI-KISI HARIAN*\n\n" + teksHarian 
+            });
+            console.log("Log: Kisi-kisi Harian terkirim ke Grup (Minggu-Kamis)");
         }
-    }, 60000);
+
+    }, 60000); // Cek setiap 1 menit
 }
 
-// Nama ekspor disamakan dengan nama fungsi di atas
 module.exports = { initUjianScheduler };
