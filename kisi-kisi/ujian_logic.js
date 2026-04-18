@@ -1,4 +1,5 @@
-const { JADWAL_PELAJARAN, MOTIVASI_SEKOLAH, ADMIN_RAW } = require('./kisi_constants');
+const { JADWAL_PELAJARAN, MOTIVASI_SEKOLAH, ADMIN_RAW, KISI_FILES_PATH } = require('./kisi_constants');
+const fs = require('fs'); // Tambahkan fs untuk cek folder
 
 function isAdmin(sender) {
     const phone = sender.split('@')[0];
@@ -6,6 +7,12 @@ function isAdmin(sender) {
 }
 
 async function buatTeksKisi(hariOverride = null) {
+    // --- TAMBAHAN LOGIKA PENJELASAN JIKA DATA KOSONG ---
+    if (!fs.existsSync(KISI_FILES_PATH) || fs.readdirSync(KISI_FILES_PATH).length === 0) {
+        return "ℹ️ *INFO KISI-KISI*\n\nBelum ada file materi (Gambar/PDF) yang diunggah ke database ujian oleh pengurus. Silakan cek lagi nanti setelah admin melakukan *!update_kisi-kisi*.";
+    }
+    // --------------------------------------------------
+
     const now = new Date();
     let hari = hariOverride || now.getDay();
     
@@ -35,4 +42,3 @@ async function buatTeksKisi(hariOverride = null) {
 }
 
 module.exports = { buatTeksKisi, isAdmin };
-
