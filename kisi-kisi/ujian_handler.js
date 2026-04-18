@@ -13,18 +13,49 @@ const {
 const { ID_GRUP_TUJUAN } = require('./kisi_constants');
 
 /**
- * HANDLER KHUSUS PERINTAH UJIAN
+ * HANDLER KHUSUS PERINTAH UJIAN & PRAKTEK
  * Lokasi: /kisi-kisi/ujian_handler.js
  */
 
 async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FILES_PATH, MY_DOMAIN) {
     const bodyParts = body.split(' ');
     const command = bodyParts[0].toLowerCase();
+    const isUserAdmin = isAdmin(sender);
 
     switch (command) {
+        // --- MENU BANTUAN (LOGIKA DISINI) ---
+        case '!menu_praktek':
+        case '!menu_ujian':
+        case '!bantuan_ujian_praktek': {
+            let helpTeks = `📚 *MENU UJIAN & PRAKTEK* 📚\n` +
+                           `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                           `📖 *!kisi-kisi* \n➝ Rekap harian hari ini\n` +
+                           `📂 *!kisi-kisi_full* \n➝ Semua materi seminggu\n` +
+                           `🛠️ *!praktek* \n➝ Jadwal ujian praktek\n\n`;
+
+            if (isUserAdmin) {
+                helpTeks += `🛠️ *TOOLS ADMIN*\n` +
+                            `━━━━━━━━━━━━━━━━━━━━\n` +
+                            `📝 *!info_kisi-kisi [pesan]*\n` +
+                            `➝ Kirim info ke grup + media\n\n` +
+                            `📥 *!update_kisi-kisi*\n` +
+                            `➝ Simpan file (Reply gambar/pdf)\n\n` +
+                            `🆙 *!update_praktek [hari] [mapel] [ket]*\n` +
+                            `➝ Update jadwal praktek\n\n` +
+                            `🗑️ *!hapus_praktek [hari]*\n` +
+                            `➝ Hapus jadwal praktek hari tertentu\n\n` +
+                            `🧹 *!hapus_kisi*\n` +
+                            `➝ Hapus semua file database kisi\n`;
+            }
+
+            helpTeks += `\n━━━━━━━━━━━━━━━━━━━━`;
+            await sock.sendMessage(from, { text: helpTeks }, { quoted: msg });
+            break;
+        }
+
         // 1. INFO & KIRIM KE GRUP
         case '!info_kisi-kisi': {
-            if (!isAdmin(sender)) return reply("🚫 Akses ditolak.");
+            if (!isUserAdmin) return reply("🚫 Akses ditolak.");
 
             const isImage = msg.message?.imageMessage || msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
             const isDoc = msg.message?.documentMessage || msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.documentMessage;
@@ -55,7 +86,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
         // 2. UPDATE KE DATA KISI-KISI
         case '!update_kisi-kisi': {
-            if (!isAdmin(sender)) return reply("🚫 Akses ditolak.");
+            if (!isUserAdmin) return reply("🚫 Akses ditolak.");
             
             const isImage = msg.message?.imageMessage;
             const isDoc = msg.message?.documentMessage;
@@ -94,8 +125,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             break;
         }
 
-        // --- FITUR BARU PRAKTEK ---
-
         // 5. CEK JADWAL PRAKTEK
         case '!praktek': {
             const teksPraktek = await buatTeksPraktek();
@@ -108,7 +137,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
         // 6. UPDATE JADWAL PRAKTEK (Admin Only)
         case '!update_praktek': {
-            if (!isAdmin(sender)) return reply("🚫 Akses ditolak.");
+            if (!isUserAdmin) return reply("🚫 Akses ditolak.");
             if (bodyParts.length < 4) return reply("⚠️ Format: *!update_praktek [hari] [mapel] [penjelasan]*\nContoh: !update_praktek senin Informatika Coding_Web");
 
             const hari = bodyParts[1];
@@ -126,7 +155,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
         // 7. HAPUS JADWAL PRAKTEK (Admin Only)
         case '!hapus_praktek': {
-            if (!isAdmin(sender)) return reply("🚫 Akses ditolak.");
+            if (!isUserAdmin) return reply("🚫 Akses ditolak.");
             const hariInput = bodyParts[1]?.toLowerCase();
             if (!hariInput) return reply("⚠️ Sebutkan harinya! Contoh: *!hapus_praktek senin*");
 
@@ -141,7 +170,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
         // 8. HAPUS SEMUA FILE KISI-KISI (Admin Only)
         case '!hapus_kisi': {
-            if (!isAdmin(sender)) return reply("🚫 Akses ditolak.");
+            if (!isUserAdmin) return reply("🚫 Akses ditolak.");
             try {
                 const files = fs.readdirSync(KISI_FILES_PATH);
                 files.forEach(file => fs.unlinkSync(path.join(KISI_FILES_PATH, file)));
