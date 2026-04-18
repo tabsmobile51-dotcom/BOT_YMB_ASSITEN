@@ -28,7 +28,7 @@ const ALL_VALID_COMMANDS = [
     'cekbot', 'p', 'tes', 'list_pr', 'pr', 'tugas_lama', 'deadline', 'dl',
     'bantuan', 'menu', 'help', 'start', 'jadwal', 'jwl', 'lapor', 'lapor_pr',
     'update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru', 'update_deadline',
-    'kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi'
+    'kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi', 'kisi-kisi_full'
 ];
 
 function getClosestCommand(cmd) {
@@ -98,7 +98,8 @@ async function handleMessages(sock, m, botConfig, utils) {
                 `Halo *${pushName}*! Berikut perintah kamu:\n\n` +
                 `📝 *!pr* -> Lihat daftar PR\n` +
                 `📆 *!jadwal* -> Lihat jadwal pelajaran\n` +
-                `📚 *!kisi-kisi* -> Rekap materi ujian\n` +
+                `📚 *!kisi-kisi* -> Rekap materi ujian hari ini\n` +
+                `📖 *!kisi-kisi_full* -> Rekap kisi-kisi semua hari\n` +
                 `📢 *!lapor* -> Lapor ke Admin\n` +
                 `⏳ *!deadline* -> PR belum dikumpul\n` +
                 `⚡ *!p* -> Cek status bot\n`;
@@ -142,7 +143,7 @@ async function handleMessages(sock, m, botConfig, utils) {
         // --- ROUTING COMMAND ---
         const userCmds = ['cekbot', 'p', 'tes', 'list_pr', 'pr', 'tugas_lama', 'deadline', 'dl', 'jadwal', 'jwl', 'lapor', 'lapor_pr'];
         const adminCmds = ['update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru', 'update_deadline'];
-        const ujianCmds = ['kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi'];
+        const ujianCmds = ['kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi', 'kisi-kisi_full'];
 
         if (userCmds.includes(cmd)) {
             await handleUserCommands(sock, msg, '!' + cmd, args, utils);
