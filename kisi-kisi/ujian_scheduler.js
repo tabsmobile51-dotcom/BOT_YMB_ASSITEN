@@ -1,10 +1,14 @@
 const { buatTeksKisi } = require('./ujian_logic');
 const { ID_GRUP_TUJUAN } = require('./kisi_constants');
 
-async function startUjianScheduler(sock, ID_PRIBADI) {
+// Nama fungsi diubah menjadi initUjianScheduler agar sesuai dengan pemanggilan di index.js
+async function initUjianScheduler(sock, ID_PRIBADI, botConfig) {
     console.log("✅ Scheduler Kisi-Kisi Aktif");
 
     setInterval(async () => {
+        // Cek apakah fitur diaktifkan di botConfig (Dashboard)
+        if (botConfig && !botConfig.kisiUjian) return;
+
         const now = new Date();
         const jam = now.getHours();
         const menit = now.getMinutes();
@@ -23,5 +27,5 @@ async function startUjianScheduler(sock, ID_PRIBADI) {
     }, 60000);
 }
 
-module.exports = { startUjianScheduler };
-
+// Nama ekspor disamakan dengan nama fungsi di atas
+module.exports = { initUjianScheduler };
