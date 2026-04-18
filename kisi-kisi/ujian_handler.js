@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
-const { buatTeksKisi, isAdmin } = require('./ujian_logic');
+// --- IMPORT FUNGSI FULL ---
+const { buatTeksKisi, buatTeksKisiFull, isAdmin } = require('./ujian_logic');
 const { ID_GRUP_TUJUAN } = require('./kisi_constants');
 
 /**
@@ -68,7 +69,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             break;
         }
 
-        // 3. CEK REKAP FULL (Bisa dilihat siapa saja)
+        // 3. CEK REKAP HARIAN (Bisa dilihat siapa saja)
         case '!kisi-kisi':
         case '!cek_kisi-kisi': {
             const rekapTeks = await buatTeksKisi();
@@ -77,6 +78,13 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                               `\n\n⚠️ *Cek link folder di atas untuk melihat semua file materi yang sudah di-upload.*`;
 
             await sock.sendMessage(from, { text: pesanFull });
+            break;
+        }
+
+        // 4. CEK REKAP FULL (Senin - Jumat)
+        case '!kisi-kisi_full': {
+            const rekapFull = await buatTeksKisiFull();
+            await sock.sendMessage(from, { text: rekapFull });
             break;
         }
     }
