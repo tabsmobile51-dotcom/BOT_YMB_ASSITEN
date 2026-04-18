@@ -34,7 +34,7 @@ const {
 
 // --- IMPORT KISI-KISI PLUGINS ---
 const { initUjianScheduler } = require('./kisi-kisi/ujian_scheduler');
-const { buatTeksKisi } = require('./kisi-kisi/ujian_logic');
+const { buatTeksKisi, buatTeksPraktek } = require('./kisi-kisi/ujian_logic');
 
 // --- IMPORT UI VIEWS ---
 const { renderDashboard } = require('./views/dashboard'); 
@@ -57,7 +57,8 @@ let botConfig = {
     smartFeedback: true, 
     prMingguan: true, 
     sahur: true,
-    kisiUjian: true, // Tambahan fitur Kisi-Kisi untuk Dashboard
+    kisiUjian: true, 
+    praktekUjian: true, // Tambahan fitur Praktek untuk Dashboard (Bisa di ON/OFF terpisah)
 };
 
 function loadConfig() {
@@ -128,7 +129,8 @@ const botUtils = {
     safeSend,
     getWeekDates,
     sendJadwalBesokManual,
-    buatTeksKisi // Tambahkan ke utils agar bisa dipakai di handler
+    buatTeksKisi,
+    buatTeksPraktek // Tambahkan praktek ke utils
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -264,7 +266,7 @@ async function start() {
                     initListPrMingguanScheduler(sock, botConfig, safeSend);
                     initSahurScheduler(sock, botConfig, safeSend);
                     
-                    // Inisialisasi Scheduler Kisi-Kisi Baru
+                    // Inisialisasi Scheduler Kisi-Kisi & Praktek
                     initUjianScheduler(sock, "6289531549103@s.whatsapp.net", botConfig); 
                     
                     schedulerInitialized = true;
