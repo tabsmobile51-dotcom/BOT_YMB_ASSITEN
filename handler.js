@@ -23,12 +23,13 @@ function levenshtein(a, b) {
     return dp[a.length][b.length];
 }
 
-// Semua command valid (Tambahan perintah kisi-kisi dimasukkan ke daftar)
+// Semua command valid (Hanya menambah perintah baru ke daftar tanpa menghapus yang lama)
 const ALL_VALID_COMMANDS = [
     'cekbot', 'p', 'tes', 'list_pr', 'pr', 'tugas_lama', 'deadline', 'dl',
     'bantuan', 'menu', 'help', 'start', 'jadwal', 'jwl', 'lapor', 'lapor_pr',
     'update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru', 'update_deadline',
-    'kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi', 'kisi-kisi_full'
+    'kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi', 'kisi-kisi_full',
+    'praktek', 'update_praktek', 'hapus_praktek', 'hapus_kisi'
 ];
 
 function getClosestCommand(cmd) {
@@ -90,7 +91,7 @@ async function handleMessages(sock, m, botConfig, utils) {
         const MY_DOMAIN = process.env.MY_DOMAIN || 'http://localhost:8080';
         const reply = (teks) => sock.sendMessage(from, { text: teks }, { quoted: msg });
 
-        // --- LOGIKA MENU BANTUAN ---
+        // --- LOGIKA MENU BANTUAN (TETAP SAMA SEPERTI ASLINYA) ---
         if (['bantuan', 'menu', 'help', 'start'].includes(cmd)) {
             let menuTeks = 
                 `✨ *MENU UTAMA SYTEAM-BOT* ✨\n` +
@@ -143,7 +144,7 @@ async function handleMessages(sock, m, botConfig, utils) {
         // --- ROUTING COMMAND ---
         const userCmds = ['cekbot', 'p', 'tes', 'list_pr', 'pr', 'tugas_lama', 'deadline', 'dl', 'jadwal', 'jwl', 'lapor', 'lapor_pr'];
         const adminCmds = ['update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru', 'update_deadline'];
-        const ujianCmds = ['kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi', 'kisi-kisi_full'];
+        const ujianCmds = ['kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi', 'kisi-kisi_full', 'praktek', 'update_praktek', 'hapus_praktek', 'hapus_kisi'];
 
         if (userCmds.includes(cmd)) {
             await handleUserCommands(sock, msg, '!' + cmd, args, utils);
@@ -164,7 +165,6 @@ async function handleMessages(sock, m, botConfig, utils) {
                           `Ketik *!bantuan* untuk lihat semua perintah. 😊`
                 });
             }
-            // Kalau beda jauh banget, diam aja (bukan typo, mungkin obrolan biasa pake !)
         }
 
     } catch (err) { 
