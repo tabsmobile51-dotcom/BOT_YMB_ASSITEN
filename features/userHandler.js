@@ -6,6 +6,7 @@ const ADMIN_NUMBER = '6289531549103@s.whatsapp.net';
 const HARI_VALID = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
 
 async function handleUserCommands(sock, msg, cmd, args, utils) {
+    await sock.readMessages([msg.key]);
     const sender = msg.key.remoteJid;
     const pushName = msg.pushName || 'User';
     const senderNumber = sender.split('@')[0];
