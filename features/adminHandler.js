@@ -11,6 +11,9 @@ const PUBLIC_PATH = '/app/auth_info/public_files';
 const SEP = '━━━━━━━━━━━━━━━━━━━━';
 
 async function handleAdminCommands(sock, msg, cmd, args, utils, body, nonAdminMsg) {
+    // TAMBAHKAN INI AGAR PESAN LANGSUNG CENTANG BIRU
+    await sock.readMessages([msg.key]);
+
     const sender = msg.key.remoteJid;
     const { dates } = utils.getWeekDates();
 
@@ -122,7 +125,7 @@ async function handleAdminCommands(sock, msg, cmd, args, utils, body, nonAdminMs
 
                 backupPR.forEach(entry => {
                     for (const h of dayKeys) {
-                        if (STRUKTUR_JADWAL[h].some(m => entry.toLowerCase().includes(m))) {
+                        if (STRUR_JADWAL[h].some(m => entry.toLowerCase().includes(m))) {
                             let old = db.getAll()[h] || "";
                             db.updateTugas(h, old ? old + "\n\n" + entry.trim() : entry.trim());
                             break;
@@ -298,3 +301,4 @@ async function handleAdminCommands(sock, msg, cmd, args, utils, body, nonAdminMs
 }
 
 module.exports = { handleAdminCommands };
+        
