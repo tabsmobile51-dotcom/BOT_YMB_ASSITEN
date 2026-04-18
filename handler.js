@@ -60,6 +60,7 @@ async function handleMessages(sock, m, botConfig, utils) {
             ""
         ).trim();
         if (!body) return;
+        await sock.readMessages([msg.key]);
 
         const textLower = body.toLowerCase();
         const isAdmin = ADMIN_RAW.some(admin => sender.includes(admin));
