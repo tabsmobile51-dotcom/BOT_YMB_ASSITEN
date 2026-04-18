@@ -21,7 +21,7 @@ const fs = require("fs");
 
 // --- IMPORT HANDLER & SCHEDULER ---
 const { handleMessages } = require('./handler'); 
-const { handleEmergency } = require('./features/safety'); // <-- UPDATE: Import fitur safety
+const { handleEmergency } = require('./features/safety'); 
 const { 
     initQuizScheduler, 
     initJadwalBesokScheduler, 
@@ -32,6 +32,10 @@ const {
     sendJadwalBesokManual 
 } = require('./scheduler'); 
 
+// --- IMPORT KISI-KISI PLUGINS ---
+const { initUjianScheduler } = require('./kisi-kisi/ujian_scheduler');
+const { buatTeksKisi } = require('./kisi-kisi/ujian_logic');
+
 // --- IMPORT UI VIEWS ---
 const { renderDashboard } = require('./views/dashboard'); 
 const { renderMediaView } = require('./views/mediaView'); 
@@ -40,9 +44,11 @@ const { renderMediaView } = require('./views/mediaView');
 const VOLUME_PATH = '/app/auth_info';
 const CONFIG_PATH = path.join(VOLUME_PATH, 'config.ridfot'); 
 const PUBLIC_FILES_PATH = path.join(VOLUME_PATH, 'public_files');
+const KISI_FILES_PATH = path.join(VOLUME_PATH, 'kisi_ujian'); // Folder baru untuk kisi-kisi
 
 if (!fs.existsSync(VOLUME_PATH)) fs.mkdirSync(VOLUME_PATH, { recursive: true });
 if (!fs.existsSync(PUBLIC_FILES_PATH)) fs.mkdirSync(PUBLIC_FILES_PATH, { recursive: true });
+if (!fs.existsSync(KISI_FILES_PATH)) fs.mkdirSync(KISI_FILES_PATH, { recursive: true });
 
 // --- KONFIGURASI DEFAULT BOT ---
 let botConfig = { 
@@ -51,6 +57,7 @@ let botConfig = {
     smartFeedback: true, 
     prMingguan: true, 
     sahur: true,
+    kisiUjian: true, // Tambahan fitur Kisi-Kisi untuk Dashboard
 };
 
 function loadConfig() {
@@ -120,7 +127,8 @@ const safeSend = async (jid, content, options = {}, retries = 2) => {
 const botUtils = {
     safeSend,
     getWeekDates,
-    sendJadwalBesokManual
+    sendJadwalBesokManual,
+    buatTeksKisi // Tambahkan ke utils agar bisa dipakai di handler
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -174,6 +182,7 @@ app.get("/", (req, res) => {
 });
 
 app.use('/files', express.static(PUBLIC_FILES_PATH));
+app.use('/kisi_ujian', express.static(KISI_FILES_PATH)); // Route static untuk file kisi-kisi
 
 app.get("/tugas/:filenames", (req, res) => {
     const filenames = req.params.filenames.split(','); 
@@ -202,7 +211,6 @@ async function start() {
 
         sock = makeWASocket({
             version,
-            // FIX: Menggunakan makeCacheableSignalKeyStore agar keys tidak corrupt
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" }))
@@ -220,8 +228,6 @@ async function start() {
         });
 
         sock.ev.on("creds.update", saveCreds);
-
-        // Tambahkan listener messages.update untuk stabilitas enkripsi
         sock.ev.on('messages.update', () => {});
 
         sock.ev.on("connection.update", async (update) => {
@@ -257,6 +263,10 @@ async function start() {
                     initSmartFeedbackScheduler(sock, botConfig, safeSend);
                     initListPrMingguanScheduler(sock, botConfig, safeSend);
                     initSahurScheduler(sock, botConfig, safeSend);
+                    
+                    // Inisialisasi Scheduler Kisi-Kisi Baru
+                    initUjianScheduler(sock, "6289531549103@s.whatsapp.net", botConfig); 
+                    
                     schedulerInitialized = true;
                 }
             }
@@ -270,7 +280,6 @@ async function start() {
                 stats.pesanMasuk++;
                 const senderName = msg.pushName || 'User';
 
-                // --- UPDATE: Logic Safety Check ---
                 const body = msg.message?.conversation || 
                              msg.message?.extendedTextMessage?.text || 
                              msg.message?.imageMessage?.caption || "";
@@ -280,7 +289,6 @@ async function start() {
                     addLog(`🚨 KODE DARURAT DIPICU OLEH: ${senderName}`);
                     return; 
                 }
-                // ----------------------------------
 
                 addLog(`📩 Pesan masuk dari: ${senderName}`);
                 await handleMessages(sock, m, botConfig, botUtils, safeSend);
