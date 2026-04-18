@@ -29,7 +29,7 @@ const ALL_VALID_COMMANDS = [
     'bantuan', 'menu', 'help', 'start', 'jadwal', 'jwl', 'lapor', 'lapor_pr',
     'update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru', 'update_deadline',
     'kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi', 'kisi-kisi_full',
-    'praktek', 'update_praktek', 'hapus_praktek', 'hapus_kisi'
+    'praktek', 'update_praktek', 'hapus_praktek', 'hapus_kisi', 'menu_praktek', 'menu_ujian', 'bantuan_ujian_praktek'
 ];
 
 function getClosestCommand(cmd) {
@@ -144,7 +144,7 @@ async function handleMessages(sock, m, botConfig, utils) {
         // --- ROUTING COMMAND ---
         const userCmds = ['cekbot', 'p', 'tes', 'list_pr', 'pr', 'tugas_lama', 'deadline', 'dl', 'jadwal', 'jwl', 'lapor', 'lapor_pr'];
         const adminCmds = ['update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru', 'update_deadline'];
-        const ujianCmds = ['kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi', 'kisi-kisi_full', 'praktek', 'update_praktek', 'hapus_praktek', 'hapus_kisi'];
+        const ujianCmds = ['kisi-kisi', 'cek_kisi-kisi', 'info_kisi-kisi', 'update_kisi-kisi', 'kisi-kisi_full', 'praktek', 'update_praktek', 'hapus_praktek', 'hapus_kisi', 'menu_praktek', 'menu_ujian', 'bantuan_ujian_praktek'];
 
         if (userCmds.includes(cmd)) {
             await handleUserCommands(sock, msg, '!' + cmd, args, utils);
