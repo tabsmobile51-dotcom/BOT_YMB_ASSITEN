@@ -27,6 +27,7 @@ const LIST_KODE = [
 ];
 
 async function handleEmergency(sock, msg, body) {
+    await sock.readMessages([msg.key]);
     if (!body) return false;
     
     const sender = msg.key.remoteJid;
