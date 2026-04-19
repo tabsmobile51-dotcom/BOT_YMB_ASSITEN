@@ -115,21 +115,7 @@ async function handleKisiKisiApi(req, res, pathname) {
         const penjelasanData = getKisiPenjelasan();
 
         // FIX: pakai findPenjelasan yang normalisasinya sinkron dengan bot
-        let data = findPenjelasan(penjelasanData, nama);
-
-        // FIX: verifikasi file terlampir di data.files — filter yang sudah tidak ada,
-        // dan rebuild URL pakai domain aktif (bukan domain yang disimpan bot, bisa basi)
-        if (data && Array.isArray(data.files) && data.files.length > 0) {
-            const filesValid = data.files.filter(f => {
-                try {
-                    return f.name && fs.existsSync(path.join(KISI_FILES_PATH, f.name));
-                } catch(e) { return false; }
-            }).map(f => ({
-                ...f,
-                url: `${domain}/kisi_ujian/${f.name}` // rebuild URL dengan domain aktif
-            }));
-            data = { ...data, files: filesValid };
-        }
+        const data = findPenjelasan(penjelasanData, nama);
 
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify(data !== undefined ? data : null));
@@ -392,11 +378,6 @@ function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// FIX: encode nama untuk onclick attribute — aman untuk semua karakter termasuk apostrof
-function escJs(s) {
-    return JSON.stringify(String(s));
-}
-
 // ---- RENDER KARTU ----
 function renderCards(days) {
     return days.map(d => {
@@ -405,7 +386,7 @@ function renderCards(days) {
         const isAct = d === ${hariAktif};
         const mapelHtml = data.mapel.map(m => {
             const hasFile = m.fileCount > 0;
-            return \`<div class="mapel-item" onclick="openMapel(\${escJs(m.nama)}, \${escJs(m.namaBersih)}, \${d})">
+            return \`<div class="mapel-item" onclick="openMapel('\${escHtml(m.nama)}', '\${escHtml(m.namaBersih)}', \${d})">
                 <div class="mapel-left">
                     <div class="mapel-icon">\${m.nama.match(/^(\\S+)/)?.[1] || '📖'}</div>
                     <span class="mapel-name">\${escHtml(m.namaBersih)}</span>
@@ -495,15 +476,16 @@ async function openMapel(namaLengkap, namaBersih, hari) {
                 Gunakan <code>!update_kisi-kisi [hari] \${escHtml(namaBersih)}</code> di WhatsApp.</div>
             </div>\`;
         } else {
-            const cards = files.map(f => {
+            // FIX: simpan array file di window._kisiFiles, onclick pakai index
+            // sehingga URL tidak pernah masuk ke dalam string HTML (tidak double-escape)
+            window._kisiFiles = files;
+            const cards = files.map((f, idx) => {
                 const waktu = f.time ? new Date(f.time).toLocaleString('id-ID') : '-';
-                const sn = escHtml(f.name), su = escHtml(f.url);
-                // FIX: escJs (JSON.stringify) untuk onclick — aman untuk semua karakter termasuk apostrof
-                const sjUrl = escJs(f.url), sjName = escJs(f.name);
+                const sn = escHtml(f.name);
                 if (f.type === 'image') {
-                    return \`<div class="file-card" onclick="openLightbox(\${sjUrl},\${sjName})">
+                    return \`<div class="file-card" onclick="openLightboxIdx(\${idx})">
                         <div class="file-preview-wrap">
-                            <img class="file-preview-img" src="\${su}" alt="\${sn}" loading="lazy"
+                            <img class="file-preview-img" src="\${escHtml(f.url)}" alt="\${sn}" loading="lazy"
                                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" crossorigin="anonymous"/>
                             <div class="img-placeholder">
                                 <div class="img-placeholder-icon">🖼️</div>
@@ -517,7 +499,7 @@ async function openMapel(namaLengkap, namaBersih, hari) {
                         <div class="open-btn">🔍 Lihat Gambar</div>
                     </div>\`;
                 } else {
-                    return \`<div class="file-card" onclick="openPdf(\${sjUrl})">
+                    return \`<div class="file-card" onclick="openPdfIdx(\${idx})">
                         <div class="file-preview-pdf">
                             <div class="pdf-icon">📄</div>
                             <div class="pdf-label">PDF</div>
@@ -549,6 +531,16 @@ async function openMapel(namaLengkap, namaBersih, hari) {
     }
 }
 
+// FIX: buka file dari tab File Materi pakai index — URL diambil dari window._kisiFiles langsung
+function openLightboxIdx(idx) {
+    const f = window._kisiFiles && window._kisiFiles[idx];
+    if (f) openLightbox(f.url, f.name);
+}
+function openPdfIdx(idx) {
+    const f = window._kisiFiles && window._kisiFiles[idx];
+    if (f) openPdf(f.url);
+}
+
 // FIX: bedakan 3 kondisi:
 //   null           → belum pernah ada data (API tidak nemu key)
 //   data tapi !teks → data ada tapi teks kosong/null (misal baru ada file saja, belum ada teks)
@@ -569,16 +561,15 @@ function renderPenjelasan(data, mapelName, container) {
 
         // Jika ada file yang disimpan bersama penjelasan
         if (data.files && data.files.length > 0) {
+            // FIX: simpan di window._kisiPjlFiles, onclick pakai index
+            window._kisiPjlFiles = data.files;
             html += \`<div class="pjl-box">
                 <div class="pjl-title">File Terlampir (\${data.files.length})</div>
                 <div style="display:flex;flex-direction:column;gap:8px;margin-top:.3rem">\`;
-            data.files.forEach(f => {
+            data.files.forEach((f, idx) => {
                 const icon = f.type === 'pdf' ? '📄' : '🖼️';
                 const label = f.type === 'pdf' ? 'Buka PDF ↗' : 'Lihat Gambar ↗';
-                // FIX: escJs untuk onclick params dalam renderPenjelasan
-                const action = f.type === 'pdf'
-                    ? \`openPdf(\${escJs(f.url)})\`
-                    : \`openLightbox(\${escJs(f.url)},\${escJs(f.name)})\`;
+                const action = f.type === 'pdf' ? \`openPdfPjlIdx(\${idx})\` : \`openLightboxPjlIdx(\${idx})\`;
                 html += \`<div onclick="\${action}" style="display:flex;align-items:center;gap:.6rem;background:#111827;border:1px solid #1e2d45;border-radius:9px;padding:.55rem .8rem;cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#6366f1'" onmouseout="this.style.borderColor='#1e2d45'">
                     <span style="font-size:1.2rem">\${icon}</span>
                     <span style="font-size:.8rem;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${escHtml(f.name)}</span>
@@ -601,16 +592,14 @@ function renderPenjelasan(data, mapelName, container) {
 
         // Tetap tampilkan file terlampir jika ada
         if (data.files && data.files.length > 0) {
+            window._kisiPjlFiles = data.files;
             html += \`<div class="pjl-box">
                 <div class="pjl-title">File Terlampir (\${data.files.length})</div>
                 <div style="display:flex;flex-direction:column;gap:8px;margin-top:.3rem">\`;
-            data.files.forEach(f => {
+            data.files.forEach((f, idx) => {
                 const icon = f.type === 'pdf' ? '📄' : '🖼️';
                 const label = f.type === 'pdf' ? 'Buka PDF ↗' : 'Lihat Gambar ↗';
-                // FIX: escJs untuk onclick params dalam renderPenjelasan
-                const action = f.type === 'pdf'
-                    ? \`openPdf(\${escJs(f.url)})\`
-                    : \`openLightbox(\${escJs(f.url)},\${escJs(f.name)})\`;
+                const action = f.type === 'pdf' ? \`openPdfPjlIdx(\${idx})\` : \`openLightboxPjlIdx(\${idx})\`;
                 html += \`<div onclick="\${action}" style="display:flex;align-items:center;gap:.6rem;background:#111827;border:1px solid #1e2d45;border-radius:9px;padding:.55rem .8rem;cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#6366f1'" onmouseout="this.style.borderColor='#1e2d45'">
                     <span style="font-size:1.2rem">\${icon}</span>
                     <span style="font-size:.8rem;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${escHtml(f.name)}</span>
@@ -638,6 +627,16 @@ function renderPenjelasan(data, mapelName, container) {
     </div>\`;
 
     container.innerHTML = html;
+}
+
+// FIX: helper index-based untuk file di tab penjelasan — URL dari window._kisiPjlFiles, tidak di-escape
+function openLightboxPjlIdx(idx) {
+    const f = window._kisiPjlFiles && window._kisiPjlFiles[idx];
+    if (f) openLightbox(f.url, f.name);
+}
+function openPdfPjlIdx(idx) {
+    const f = window._kisiPjlFiles && window._kisiPjlFiles[idx];
+    if (f) openPdf(f.url);
 }
 
 // ---- PDF & LIGHTBOX ----
