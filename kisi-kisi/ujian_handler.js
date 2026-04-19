@@ -127,11 +127,17 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
         // 5. CEK JADWAL PRAKTEK
         case '!praktek': {
-            const teksPraktek = await buatTeksPraktek();
-            if (!teksPraktek) {
-                return reply("ℹ️ *INFO PRAKTEK*\n\nTidak ada jadwal ujian praktek untuk waktu dekat. Tetap semangat!");
+            try {
+                const teksPraktek = await buatTeksPraktek();
+                // Jika data kosong atau tidak ada jadwal
+                if (!teksPraktek || teksPraktek.trim().length < 5) {
+                    return reply("ℹ️ *INFO PRAKTEK*\n\nBelum ada jadwal ujian praktek yang tersedia saat ini. Tetap semangat belajar! ☕");
+                }
+                await sock.sendMessage(from, { text: teksPraktek }, { quoted: msg });
+            } catch (err) {
+                console.error("Error Praktek:", err);
+                reply("❌ Gagal mengambil data praktek.");
             }
-            await sock.sendMessage(from, { text: teksPraktek });
             break;
         }
 
@@ -184,3 +190,4 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 }
 
 module.exports = { handleUjianCommands };
+                        
