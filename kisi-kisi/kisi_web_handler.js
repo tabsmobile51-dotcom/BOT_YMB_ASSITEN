@@ -115,7 +115,21 @@ async function handleKisiKisiApi(req, res, pathname) {
         const penjelasanData = getKisiPenjelasan();
 
         // FIX: pakai findPenjelasan yang normalisasinya sinkron dengan bot
-        const data = findPenjelasan(penjelasanData, nama);
+        let data = findPenjelasan(penjelasanData, nama);
+
+        // FIX: verifikasi file terlampir di data.files — filter yang sudah tidak ada,
+        // dan rebuild URL pakai domain aktif (bukan domain yang disimpan bot, bisa basi)
+        if (data && Array.isArray(data.files) && data.files.length > 0) {
+            const filesValid = data.files.filter(f => {
+                try {
+                    return f.name && fs.existsSync(path.join(KISI_FILES_PATH, f.name));
+                } catch(e) { return false; }
+            }).map(f => ({
+                ...f,
+                url: `${domain}/kisi_ujian/${f.name}` // rebuild URL dengan domain aktif
+            }));
+            data = { ...data, files: filesValid };
+        }
 
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify(data !== undefined ? data : null));
@@ -378,6 +392,11 @@ function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// FIX: encode nama untuk onclick attribute — aman untuk semua karakter termasuk apostrof
+function escJs(s) {
+    return JSON.stringify(String(s));
+}
+
 // ---- RENDER KARTU ----
 function renderCards(days) {
     return days.map(d => {
@@ -386,7 +405,7 @@ function renderCards(days) {
         const isAct = d === ${hariAktif};
         const mapelHtml = data.mapel.map(m => {
             const hasFile = m.fileCount > 0;
-            return \`<div class="mapel-item" onclick="openMapel('\${escHtml(m.nama)}', '\${escHtml(m.namaBersih)}', \${d})">
+            return \`<div class="mapel-item" onclick="openMapel(\${escJs(m.nama)}, \${escJs(m.namaBersih)}, \${d})">
                 <div class="mapel-left">
                     <div class="mapel-icon">\${m.nama.match(/^(\\S+)/)?.[1] || '📖'}</div>
                     <span class="mapel-name">\${escHtml(m.namaBersih)}</span>
@@ -479,8 +498,10 @@ async function openMapel(namaLengkap, namaBersih, hari) {
             const cards = files.map(f => {
                 const waktu = f.time ? new Date(f.time).toLocaleString('id-ID') : '-';
                 const sn = escHtml(f.name), su = escHtml(f.url);
+                // FIX: escJs (JSON.stringify) untuk onclick — aman untuk semua karakter termasuk apostrof
+                const sjUrl = escJs(f.url), sjName = escJs(f.name);
                 if (f.type === 'image') {
-                    return \`<div class="file-card" onclick="openLightbox('\${su}','\${sn}')">
+                    return \`<div class="file-card" onclick="openLightbox(\${sjUrl},\${sjName})">
                         <div class="file-preview-wrap">
                             <img class="file-preview-img" src="\${su}" alt="\${sn}" loading="lazy"
                                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" crossorigin="anonymous"/>
@@ -496,7 +517,7 @@ async function openMapel(namaLengkap, namaBersih, hari) {
                         <div class="open-btn">🔍 Lihat Gambar</div>
                     </div>\`;
                 } else {
-                    return \`<div class="file-card" onclick="openPdf('\${su}')">
+                    return \`<div class="file-card" onclick="openPdf(\${sjUrl})">
                         <div class="file-preview-pdf">
                             <div class="pdf-icon">📄</div>
                             <div class="pdf-label">PDF</div>
@@ -554,9 +575,10 @@ function renderPenjelasan(data, mapelName, container) {
             data.files.forEach(f => {
                 const icon = f.type === 'pdf' ? '📄' : '🖼️';
                 const label = f.type === 'pdf' ? 'Buka PDF ↗' : 'Lihat Gambar ↗';
+                // FIX: escJs untuk onclick params dalam renderPenjelasan
                 const action = f.type === 'pdf'
-                    ? \`openPdf('\${escHtml(f.url)}')\`
-                    : \`openLightbox('\${escHtml(f.url)}','\${escHtml(f.name)}')\`;
+                    ? \`openPdf(\${escJs(f.url)})\`
+                    : \`openLightbox(\${escJs(f.url)},\${escJs(f.name)})\`;
                 html += \`<div onclick="\${action}" style="display:flex;align-items:center;gap:.6rem;background:#111827;border:1px solid #1e2d45;border-radius:9px;padding:.55rem .8rem;cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#6366f1'" onmouseout="this.style.borderColor='#1e2d45'">
                     <span style="font-size:1.2rem">\${icon}</span>
                     <span style="font-size:.8rem;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${escHtml(f.name)}</span>
@@ -585,9 +607,10 @@ function renderPenjelasan(data, mapelName, container) {
             data.files.forEach(f => {
                 const icon = f.type === 'pdf' ? '📄' : '🖼️';
                 const label = f.type === 'pdf' ? 'Buka PDF ↗' : 'Lihat Gambar ↗';
+                // FIX: escJs untuk onclick params dalam renderPenjelasan
                 const action = f.type === 'pdf'
-                    ? \`openPdf('\${escHtml(f.url)}')\`
-                    : \`openLightbox('\${escHtml(f.url)}','\${escHtml(f.name)}')\`;
+                    ? \`openPdf(\${escJs(f.url)})\`
+                    : \`openLightbox(\${escJs(f.url)},\${escJs(f.name)})\`;
                 html += \`<div onclick="\${action}" style="display:flex;align-items:center;gap:.6rem;background:#111827;border:1px solid #1e2d45;border-radius:9px;padding:.55rem .8rem;cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#6366f1'" onmouseout="this.style.borderColor='#1e2d45'">
                     <span style="font-size:1.2rem">\${icon}</span>
                     <span style="font-size:.8rem;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${escHtml(f.name)}</span>
