@@ -30,9 +30,10 @@ async function buatTeksKisi(hariOverride = null) {
     }
 
     const now = new Date();
-    let hari = hariOverride || now.getDay();
+    // FIX: gunakan hariOverride === null bukan !hariOverride agar hari 0 (Minggu) tetap benar
+    let hari = hariOverride !== null ? hariOverride : now.getDay();
     
-    if (!hariOverride && now.getHours() >= 16) hari += 1;
+    if (hariOverride === null && now.getHours() >= 16) hari += 1;
     if (hari > 5 || hari === 0) hari = 1;
 
     const dayLabels = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -114,17 +115,19 @@ async function updatePraktekData(hari, mapel, penjelasan) {
 async function buatTeksPraktek(hariOverride = null) {
     try {
         const now = new Date();
-        let hari = hariOverride || now.getDay();
+        // FIX: gunakan hariOverride === null bukan !hariOverride agar hari 0 (Minggu) tetap benar
+        let hari = hariOverride !== null ? hariOverride : now.getDay();
         
-        if (!hariOverride && now.getHours() >= 12) hari += 1;
+        if (hariOverride === null && now.getHours() >= 12) hari += 1;
         if (hari > 5 || hari === 0) hari = 1;
 
         const dayLabels = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
         const dataPraktek = getStoredPraktek();
         const praktekList = dataPraktek[hari];
 
+        // FIX: return string kosong bukan null, agar .trim() di handler tidak crash
         if (!praktekList || praktekList.includes("Tidak ada")) {
-            return null; 
+            return "";
         }
 
         const kataSemangat = [
@@ -146,7 +149,8 @@ async function buatTeksPraktek(hariOverride = null) {
         return teks;
     } catch (err) {
         console.error("Error di buatTeksPraktek:", err);
-        return null;
+        // FIX: return string kosong bukan null saat error
+        return "";
     }
 }
 
@@ -158,4 +162,3 @@ module.exports = {
     isAdmin, 
     getStoredPraktek 
 };
-                                                 
