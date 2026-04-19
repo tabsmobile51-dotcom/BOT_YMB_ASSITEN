@@ -15,6 +15,21 @@ const PRAKTEK_JSON_PATH = '/app/auth_info/data_praktek.json';
 const KISI_PENJELASAN_PATH = '/app/auth_info/kisi_penjelasan.json';
 const DAY_LABELS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
+// ============================================================
+// FIX: Normalisasi key SAMA PERSIS dengan ujian_handler.js
+// Bot simpan: namaMapel.toLowerCase().trim()
+// Web cari:   harus pakai logika yang sama
+// ============================================================
+function normalizeKey(s) {
+    return String(s).toLowerCase().trim();
+}
+
+// Strip emoji/simbol di awal nama mapel (dari JADWAL_PELAJARAN)
+// Contoh: "📚 Matematika" → "Matematika"
+function stripPrefix(s) {
+    return String(s).replace(/^[^\w]+\s*/, '').trim();
+}
+
 function getStoredPraktek() {
     try {
         if (fs.existsSync(PRAKTEK_JSON_PATH)) {
@@ -44,6 +59,29 @@ function getKisiFiles() {
 function getFilesForMapel(mapelName, allFiles) {
     const safe = mapelName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
     return allFiles.filter(f => f.toLowerCase().includes(safe));
+}
+
+// ============================================================
+// FIX: Cari penjelasan dengan normalisasi yang benar
+// Urutan: exact match → partial match (kedua arah)
+// ============================================================
+function findPenjelasan(penjelasanData, namaParam) {
+    // namaParam = nama mapel dari frontend, sudah di-strip prefix emoji
+    const key = normalizeKey(namaParam);
+    const entries = Object.entries(penjelasanData);
+
+    // 1. Exact match
+    const exact = entries.find(([k]) => normalizeKey(k) === key);
+    if (exact) return exact[1];
+
+    // 2. Partial match — key ada di dalam nama tersimpan, atau sebaliknya
+    const partial = entries.find(([k]) => {
+        const nk = normalizeKey(k);
+        return nk.includes(key) || key.includes(nk);
+    });
+    if (partial) return partial[1];
+
+    return null;
 }
 
 // --- API ENDPOINT ---
@@ -76,19 +114,11 @@ async function handleKisiKisiApi(req, res, pathname) {
         const nama = urlObj.searchParams.get('nama') || '';
         const penjelasanData = getKisiPenjelasan();
 
-        // Cari exact match dulu, lalu partial match
-        const key = nama.toLowerCase().trim();
-        let data = penjelasanData[key] || null;
-
-        // Kalau tidak ketemu, coba partial
-        if (!data) {
-            const keys = Object.keys(penjelasanData);
-            const partialKey = keys.find(k => k.includes(key) || key.includes(k));
-            if (partialKey) data = penjelasanData[partialKey];
-        }
+        // FIX: pakai findPenjelasan yang normalisasinya sinkron dengan bot
+        const data = findPenjelasan(penjelasanData, nama);
 
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify(data || null));
+        res.end(JSON.stringify(data !== undefined ? data : null));
         return;
     }
 
@@ -115,8 +145,10 @@ function buildHtml(domain) {
         const praktek = dataPraktek[d] || 'Tidak ada';
         jadwalData[d] = {
             mapel: mapelList.map(m => {
-                const filesForThis = getFilesForMapel(m.replace(/^[^\w]+/, '').split(' ').slice(-1)[0], kisiFiles);
-                return { nama: m, fileCount: filesForThis.length };
+                // FIX: strip prefix dulu baru cari file, sama seperti yang dikirim ke API
+                const namaBersih = stripPrefix(m);
+                const filesForThis = getFilesForMapel(namaBersih, kisiFiles);
+                return { nama: m, namaBersih, fileCount: filesForThis.length };
             }),
             praktek,
             adaPraktek: !praktek.toLowerCase().includes('tidak ada')
@@ -337,6 +369,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 </div>
 
 <script>
+// FIX: jadwalData sekarang menyertakan namaBersih per mapel
 const JADWAL = ${JSON.stringify(jadwalData)};
 const DAY_NAMES = ['','SENIN','SELASA','RABU','KAMIS','JUMAT'];
 let activeDay = ${hariAktif};
@@ -353,10 +386,10 @@ function renderCards(days) {
         const isAct = d === ${hariAktif};
         const mapelHtml = data.mapel.map(m => {
             const hasFile = m.fileCount > 0;
-            return \`<div class="mapel-item" onclick="openMapel('\${escHtml(m.nama)}', \${d})">
+            return \`<div class="mapel-item" onclick="openMapel('\${escHtml(m.nama)}', '\${escHtml(m.namaBersih)}', \${d})">
                 <div class="mapel-left">
                     <div class="mapel-icon">\${m.nama.match(/^(\\S+)/)?.[1] || '📖'}</div>
-                    <span class="mapel-name">\${escHtml(m.nama.replace(/^[^\\w]+\\s*/,''))}</span>
+                    <span class="mapel-name">\${escHtml(m.namaBersih)}</span>
                 </div>
                 <div class="mapel-right">
                     <span class="file-count \${hasFile?'ada':'kosong'}">\${hasFile ? m.fileCount+' file' : 'Belum ada'}</span>
@@ -404,13 +437,13 @@ function switchTab(tab, btn) {
 }
 
 // ---- BUKA MODAL ----
-async function openMapel(namaLengkap, hari) {
+// FIX: terima namaBersih secara eksplisit — sudah di-strip prefix di server
+async function openMapel(namaLengkap, namaBersih, hari) {
     const modal = document.getElementById('modal');
     const namaEl = document.getElementById('modal-mapel-name');
     const subEl = document.getElementById('modal-mapel-sub');
     const panelFiles = document.getElementById('panel-files');
     const panelInfo = document.getElementById('panel-info');
-    const namaBersih = namaLengkap.replace(/^[^\\w]+\\s*/, '');
 
     namaEl.textContent = namaLengkap;
     subEl.textContent = 'Memuat data...';
@@ -424,7 +457,7 @@ async function openMapel(namaLengkap, hari) {
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
 
-    // Fetch file dan penjelasan secara paralel
+    // FIX: kirim namaBersih ke API (sudah strip emoji/prefix), bukan namaLengkap
     const [filesRes, pjlRes] = await Promise.allSettled([
         fetch('/kisi-api/mapel?nama=' + encodeURIComponent(namaBersih)).then(r => r.json()),
         fetch('/kisi-api/penjelasan?nama=' + encodeURIComponent(namaBersih)).then(r => r.json())
@@ -495,7 +528,10 @@ async function openMapel(namaLengkap, hari) {
     }
 }
 
-// Render konten tab Kisi-Kisi dari data JSON bot
+// FIX: bedakan 3 kondisi:
+//   null           → belum pernah ada data (API tidak nemu key)
+//   data tapi !teks → data ada tapi teks kosong/null (misal baru ada file saja, belum ada teks)
+//   data.teks ada  → tampil normal
 function renderPenjelasan(data, mapelName, container) {
     let html = '';
 
@@ -510,7 +546,38 @@ function renderPenjelasan(data, mapelName, container) {
             \${updatedAt ? \`<div class="pjl-updated">\${updatedAt}</div>\` : ''}
         </div>\`;
 
-        // Jika ada file yang disimpan bersama penjelasan (dari info_kisi-kisi)
+        // Jika ada file yang disimpan bersama penjelasan
+        if (data.files && data.files.length > 0) {
+            html += \`<div class="pjl-box">
+                <div class="pjl-title">File Terlampir (\${data.files.length})</div>
+                <div style="display:flex;flex-direction:column;gap:8px;margin-top:.3rem">\`;
+            data.files.forEach(f => {
+                const icon = f.type === 'pdf' ? '📄' : '🖼️';
+                const label = f.type === 'pdf' ? 'Buka PDF ↗' : 'Lihat Gambar ↗';
+                const action = f.type === 'pdf'
+                    ? \`openPdf('\${escHtml(f.url)}')\`
+                    : \`openLightbox('\${escHtml(f.url)}','\${escHtml(f.name)}')\`;
+                html += \`<div onclick="\${action}" style="display:flex;align-items:center;gap:.6rem;background:#111827;border:1px solid #1e2d45;border-radius:9px;padding:.55rem .8rem;cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#6366f1'" onmouseout="this.style.borderColor='#1e2d45'">
+                    <span style="font-size:1.2rem">\${icon}</span>
+                    <span style="font-size:.8rem;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${escHtml(f.name)}</span>
+                    <span style="font-size:.75rem;color:#6366f1;font-weight:700;flex-shrink:0">\${label}</span>
+                </div>\`;
+            });
+            html += \`</div></div>\`;
+        }
+    } else if (data && !data.teks) {
+        // FIX: data ada (misal hanya punya .files atau .hari) tapi belum ada teks penjelasan
+        // Ini yang dulu salah tampil sebagai "belum ada" padahal sebetulnya data sudah ada
+        html += \`<div class="pjl-box">
+            <div class="pjl-title">Penjelasan Kisi-Kisi</div>
+            <div class="pjl-empty" style="padding:1rem 0">
+                <div class="pjl-empty-icon">📋</div>
+                Belum ada teks penjelasan untuk <strong>\${escHtml(mapelName)}</strong>.<br>
+                <span style="font-size:.8rem">File materi tersedia di tab File Materi.</span>
+            </div>
+        </div>\`;
+
+        // Tetap tampilkan file terlampir jika ada
         if (data.files && data.files.length > 0) {
             html += \`<div class="pjl-box">
                 <div class="pjl-title">File Terlampir (\${data.files.length})</div>
@@ -530,7 +597,7 @@ function renderPenjelasan(data, mapelName, container) {
             html += \`</div></div>\`;
         }
     } else {
-        // Belum ada penjelasan dari admin
+        // null = belum pernah ada data sama sekali
         html += \`<div class="pjl-box">
             <div class="pjl-title">Penjelasan Kisi-Kisi</div>
             <div class="pjl-empty" style="padding:1rem 0">
