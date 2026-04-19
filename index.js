@@ -18,6 +18,7 @@ const express = require("express");
 const QRCode = require("qrcode");
 const path = require("path");
 const fs = require("fs");
+const url = require("url"); // Tambahan untuk parsing URL web
 
 // --- IMPORT HANDLER & SCHEDULER ---
 const { handleMessages } = require('./handler'); 
@@ -35,6 +36,8 @@ const {
 // --- IMPORT KISI-KISI PLUGINS ---
 const { initUjianScheduler } = require('./kisi-kisi/ujian_scheduler');
 const { buatTeksKisi, buatTeksPraktek } = require('./kisi-kisi/ujian_logic');
+// Tambahan Import untuk Handler Website Kisi-Kisi
+const { handleKisiKisiWeb, handleKisiKisiApi } = require('./kisi-kisi/kisi_web_handler');
 
 // --- IMPORT UI VIEWS ---
 const { renderDashboard } = require('./views/dashboard'); 
@@ -181,6 +184,13 @@ app.get("/toggle/:feature", (req, res) => {
 app.get("/", (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.send(renderDashboard(isConnected, qrCodeData, botConfig, stats, logs, port));
+});
+
+// --- ROUTE WEBSITE KISI-KISI & API ---
+app.get("/kisi-kisi", (req, res) => handleKisiKisiWeb(req, res));
+app.get("/kisi-api/*", (req, res) => {
+    const pathname = url.parse(req.url).pathname;
+    return handleKisiKisiApi(req, res, pathname);
 });
 
 app.use('/files', express.static(PUBLIC_FILES_PATH));
