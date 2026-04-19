@@ -2,13 +2,18 @@ const { JADWAL_PELAJARAN, JADWAL_PRAKTEK, MOTIVASI_SEKOLAH, ADMIN_RAW, KISI_FILE
 const fs = require('fs');
 const path = require('path');
 
-// Path untuk simpan data praktek agar permanen
-const PRAKTEK_JSON_PATH = path.join(__dirname, '../auth_info/data_praktek.json');
+// MENGGUNAKAN PATH ABSOLUT SESUAI STRUKTUR SERVER KAMU (/app/auth_info)
+const PRAKTEK_JSON_PATH = '/app/auth_info/data_praktek.json';
 
 // Fungsi ambil data dari JSON atau default
 function getStoredPraktek() {
-    if (fs.existsSync(PRAKTEK_JSON_PATH)) {
-        return JSON.parse(fs.readFileSync(PRAKTEK_JSON_PATH, 'utf-8'));
+    try {
+        if (fs.existsSync(PRAKTEK_JSON_PATH)) {
+            const fileData = fs.readFileSync(PRAKTEK_JSON_PATH, 'utf-8');
+            return JSON.parse(fileData);
+        }
+    } catch (e) {
+        console.error("Gagal baca database praktek:", e);
     }
     return JADWAL_PRAKTEK;
 }
@@ -50,7 +55,7 @@ async function buatTeksKisi(hariOverride = null) {
     return teks;
 }
 
-// --- FUNGSI BARU: KISI-KISI FULL (SENIN-JUMAT) ---
+// --- FUNGSI BARU: KISI-KISI FULL ---
 async function buatTeksKisiFull() {
     if (!fs.existsSync(KISI_FILES_PATH) || fs.readdirSync(KISI_FILES_PATH).length === 0) {
         return "ℹ️ *INFO KISI-KISI*\n\nBelum ada file materi di database. !kisi-kisi_full belum bisa ditampilkan.";
@@ -82,51 +87,67 @@ async function buatTeksKisiFull() {
 
 // --- FUNGSI UPDATE PRAKTEK (PERMANEN) ---
 async function updatePraktekData(hari, mapel, penjelasan) {
-    const hariMap = { 'senin': 1, 'selasa': 2, 'rabu': 3, 'kamis': 4, 'jumat': 5 };
-    const hariNum = hariMap[hari.toLowerCase()];
-    
-    if (!hariNum) return false;
+    try {
+        const hariMap = { 'senin': 1, 'selasa': 2, 'rabu': 3, 'kamis': 4, 'jumat': 5 };
+        const hariNum = hariMap[hari.toLowerCase()];
+        
+        if (!hariNum) return false;
 
-    let data = getStoredPraktek();
-    data[hariNum] = `${mapel}: ${penjelasan}`;
-    
-    fs.writeFileSync(PRAKTEK_JSON_PATH, JSON.stringify(data, null, 2));
-    return true;
+        // Pastikan folder auth_info ada
+        const dir = path.dirname(PRAKTEK_JSON_PATH);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
+        let data = getStoredPraktek();
+        data[hariNum] = `${mapel}: ${penjelasan}`;
+        
+        fs.writeFileSync(PRAKTEK_JSON_PATH, JSON.stringify(data, null, 2), 'utf-8');
+        return true;
+    } catch (err) {
+        console.error("Gagal update data praktek:", err);
+        return false;
+    }
 }
 
 // --- FUNGSI BUAT TEKS PRAKTEK ---
 async function buatTeksPraktek(hariOverride = null) {
-    const now = new Date();
-    let hari = hariOverride || now.getDay();
-    
-    if (!hariOverride && now.getHours() >= 12) hari += 1;
-    if (hari > 5 || hari === 0) hari = 1;
+    try {
+        const now = new Date();
+        let hari = hariOverride || now.getDay();
+        
+        if (!hariOverride && now.getHours() >= 12) hari += 1;
+        if (hari > 5 || hari === 0) hari = 1;
 
-    const dayLabels = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-    const dataPraktek = getStoredPraktek();
-    const praktekList = dataPraktek[hari];
+        const dayLabels = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        const dataPraktek = getStoredPraktek();
+        const praktekList = dataPraktek[hari];
 
-    if (!praktekList || praktekList.includes("Tidak ada")) {
-        return null; 
+        if (!praktekList || praktekList.includes("Tidak ada")) {
+            return null; 
+        }
+
+        const kataSemangat = [
+            "Lakukan yang terbaik, hasil tidak akan mengkhianati usaha! 💪",
+            "Percaya diri adalah kunci kesuksesan praktek hari ini! ✨",
+            "Tetap tenang dan fokus, kamu pasti bisa melewatinya! 🔥",
+            "Jangan grogi, tunjukkan kemampuan terbaikmu! 🚀",
+            "Semangat ujian prakteknya, semoga lancar dan sukses! 😇"
+        ];
+        const semangatRandom = kataSemangat[Math.floor(Math.random() * kataSemangat.length)];
+
+        let teks = `🛠️ *JADWAL UJIAN PRAKTEK* 🛠️\n`;
+        teks += `📅 *Persiapan: ${dayLabels[hari].toUpperCase()}*\n`;
+        teks += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+        teks += `${praktekList}\n\n`;
+        teks += `━━━━━━━━━━━━━━━━━━━━\n`;
+        teks += `💡 _${semangatRandom}_`;
+
+        return teks;
+    } catch (err) {
+        console.error("Error di buatTeksPraktek:", err);
+        return null;
     }
-
-    const kataSemangat = [
-        "Lakukan yang terbaik, hasil tidak akan mengkhianati usaha! 💪",
-        "Percaya diri adalah kunci kesuksesan praktek hari ini! ✨",
-        "Tetap tenang dan fokus, kamu pasti bisa melewatinya! 🔥",
-        "Jangan grogi, tunjukkan kemampuan terbaikmu! 🚀",
-        "Semangat ujian prakteknya, semoga lancar dan sukses! 😇"
-    ];
-    const semangatRandom = kataSemangat[Math.floor(Math.random() * kataSemangat.length)];
-
-    let teks = `🛠️ *JADWAL UJIAN PRAKTEK* 🛠️\n`;
-    teks += `📅 *Persiapan: ${dayLabels[hari].toUpperCase()}*\n`;
-    teks += `━━━━━━━━━━━━━━━━━━━━\n\n`;
-    teks += `${praktekList}\n\n`;
-    teks += `━━━━━━━━━━━━━━━━━━━━\n`;
-    teks += `💡 _${semangatRandom}_`;
-
-    return teks;
 }
 
 module.exports = { 
@@ -137,3 +158,4 @@ module.exports = {
     isAdmin, 
     getStoredPraktek 
 };
+                                                 
