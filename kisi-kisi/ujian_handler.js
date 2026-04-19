@@ -69,7 +69,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                             `🗑️ *!hapus_praktek [hari]*\n` +
                             `➝ Hapus jadwal praktek hari tertentu\n\n` +
                             `🧹 *!hapus_kisi [mapel]*\n` +
-                            `➝ Hapus file mapel tertentu\n`;
+                            `➝ Hapus file + penjelasan mapel tertentu\n`;
             }
 
             helpTeks += `\n━━━━━━━━━━━━━━━━━━━━`;
@@ -328,8 +328,46 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
                 if (targetFiles.length === 0) return reply("ℹ️ Tidak ada file yang cocok.");
 
+                // Hapus file fisik
                 targetFiles.forEach(file => fs.unlinkSync(path.join(KISI_FILES_PATH, file)));
-                await reply(`✅ Berhasil menghapus ${targetFiles.length} file.`);
+
+                // FIX: Hapus juga data di kisi_penjelasan.json
+                // Sinkron dengan cara bot simpan key: namaMapel.toLowerCase().trim()
+                try {
+                    const penjelasanData = getPenjelasanData();
+                    const keyHapus = namaMapelHapus.toLowerCase().trim();
+                    const safeMapelHapus = namaMapelHapus.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+                    let terhapusJson = 0;
+
+                    // Hapus key yang exact match atau partial match (sama logika file)
+                    for (const k of Object.keys(penjelasanData)) {
+                        const kNorm = k.toLowerCase().trim();
+                        const kSafe = k.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+                        if (
+                            kNorm === keyHapus ||
+                            kNorm.includes(keyHapus) ||
+                            keyHapus.includes(kNorm) ||
+                            kSafe.includes(safeMapelHapus) ||
+                            safeMapelHapus.includes(kSafe)
+                        ) {
+                            delete penjelasanData[k];
+                            terhapusJson++;
+                        }
+                    }
+
+                    if (terhapusJson > 0) savePenjelasanData(penjelasanData);
+
+                    await reply(
+                        `✅ Berhasil menghapus ${targetFiles.length} file` +
+                        (terhapusJson > 0 ? ` + ${terhapusJson} data penjelasan` : '') +
+                        ` untuk mapel *${namaMapelHapus || 'semua'}*.`
+                    );
+                } catch (jsonErr) {
+                    console.error("Error hapus JSON penjelasan:", jsonErr);
+                    // File fisik sudah terhapus, lapor partial success
+                    await reply(`✅ Berhasil menghapus ${targetFiles.length} file, tapi gagal hapus data penjelasan.`);
+                }
+
             } catch (err) {
                 console.error("Error hapus_kisi:", err);
                 reply("❌ Gagal menghapus file.");
