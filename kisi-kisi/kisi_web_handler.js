@@ -31,15 +31,12 @@ function getKisiFiles() {
     } catch (e) { return []; }
 }
 
-// Cari file yang cocok dengan nama mapel
-// Format file: kisi_[NamaMapel]_[timestamp].jpg/pdf
 function getFilesForMapel(mapelName, allFiles) {
     const safe = mapelName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
     return allFiles.filter(f => f.toLowerCase().includes(safe));
 }
 
 // --- API ENDPOINT: /kisi-api/mapel?nama=Matematika ---
-// Dipanggil JS di frontend saat klik mapel, return JSON list file
 async function handleKisiKisiApi(req, res, pathname) {
     if (pathname === '/kisi-api/mapel') {
         const urlObj = new URL(req.url, 'http://localhost');
@@ -82,7 +79,6 @@ function buildHtml(domain) {
           }))).toLocaleString('id-ID')
         : 'Belum ada update';
 
-    // Build data JSON untuk JS frontend
     const jadwalData = {};
     for (let d = 1; d <= 5; d++) {
         const mapelList = (JADWAL_PELAJARAN[d] || '').split('\n').filter(Boolean);
@@ -170,20 +166,51 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 .praktek-label{font-size:9px;font-weight:800;color:#fbbf24;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;margin-top:2px}
 .praktek-detail{font-size:.85rem;color:#e2e8f0}
 
-/* MODAL OVERLAY */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s;backdrop-filter:blur(4px)}
+/* ===================== MODAL OVERLAY ===================== */
+/* 
+  FIX: Ganti position:fixed dengan pendekatan berbeda.
+  Kita bungkus modal di dalam div yang TIDAK fixed, supaya tidak
+  collapse di dalam iframe. Tapi karena ini server langsung (bukan iframe),
+  kita tetap pakai fixed tapi pastikan z-index dan min-height benar.
+*/
+.modal-overlay{
+    position:fixed;inset:0;
+    background:rgba(0,0,0,.82);
+    z-index:9999;
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .25s;
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+}
 .modal-overlay.open{opacity:1;pointer-events:all}
 @media(min-width:600px){
     .modal-overlay{align-items:center}
 }
 
 /* MODAL SHEET */
-.modal-sheet{background:#111827;border:1px solid #1e2d45;border-radius:24px 24px 0 0;width:100%;max-width:700px;max-height:90vh;overflow-y:auto;padding:1.5rem;transform:translateY(30px);transition:transform .3s cubic-bezier(.34,1.56,.64,1);scrollbar-width:thin;scrollbar-color:#1e2d45 transparent}
+.modal-sheet{
+    background:#111827;
+    border:1px solid #1e2d45;
+    border-radius:24px 24px 0 0;
+    width:100%;
+    max-width:820px;
+    max-height:92vh;
+    overflow-y:auto;
+    padding:1.5rem;
+    transform:translateY(40px);
+    transition:transform .3s cubic-bezier(.34,1.56,.64,1);
+    scrollbar-width:thin;
+    scrollbar-color:#1e2d45 transparent;
+}
 .modal-sheet::-webkit-scrollbar{width:4px}
 .modal-sheet::-webkit-scrollbar-thumb{background:#1e2d45;border-radius:4px}
 .modal-overlay.open .modal-sheet{transform:translateY(0)}
 @media(min-width:600px){
-    .modal-sheet{border-radius:20px;max-height:85vh}
+    .modal-sheet{border-radius:20px;max-height:88vh}
 }
 
 .modal-handle{width:36px;height:4px;background:#1e2d45;border-radius:2px;margin:0 auto 1.25rem}
@@ -193,6 +220,26 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 .modal-mapel-sub{font-size:.8rem;color:#64748b}
 .modal-close{width:32px;height:32px;border-radius:50%;border:1px solid #1e2d45;background:#080b14;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;transition:all .2s}
 .modal-close:hover{border-color:#6366f1;color:#a5b4fc}
+
+/* TABS DALAM MODAL */
+.modal-tabs{display:flex;gap:6px;margin-bottom:1.25rem;border-bottom:1px solid #1e2d45;padding-bottom:.75rem}
+.modal-tab{padding:6px 14px;border-radius:8px;border:1px solid #1e2d45;background:transparent;color:#64748b;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;font-family:inherit}
+.modal-tab.active{background:#6366f1;border-color:#6366f1;color:#fff}
+.modal-tab:hover:not(.active){border-color:#6366f1;color:#a5b4fc}
+.modal-panel{display:none}
+.modal-panel.show{display:block}
+
+/* KISI-KISI PENJELASAN */
+.kisi-info-box{background:#080b14;border:1px solid #1a2535;border-radius:13px;padding:1.1rem 1.2rem;margin-bottom:.75rem}
+.kisi-info-title{font-size:.8rem;font-weight:800;color:#a5b4fc;text-transform:uppercase;letter-spacing:.07em;margin-bottom:.6rem;display:flex;align-items:center;gap:.4rem}
+.kisi-info-title::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:#6366f1}
+.kisi-info-content{font-size:.875rem;color:#cbd5e1;line-height:1.65}
+.kisi-info-content ul{padding-left:1.2rem;margin-top:.4rem}
+.kisi-info-content ul li{margin-bottom:.3rem;color:#94a3b8}
+.kisi-info-content strong{color:#e2e8f0;font-weight:700}
+.kisi-tip{background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.18);border-radius:10px;padding:.65rem .9rem;margin-top:.75rem;font-size:.8rem;color:#a5b4fc;line-height:1.5}
+.kisi-tip strong{color:#c4b5fd}
+.kisi-empty-info{text-align:center;padding:2rem 1rem;color:#475569;font-size:.875rem}
 
 /* MODAL CONTENT */
 .modal-loading{text-align:center;padding:3rem 1rem;color:#475569;font-size:.9rem}
@@ -204,18 +251,151 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 .modal-empty-sub{font-size:.8rem;color:#334155}
 
 /* FILE GRID */
-.file-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
-.file-card{background:#080b14;border:1px solid #1a2535;border-radius:13px;overflow:hidden;transition:border-color .2s;text-decoration:none;display:block}
-.file-card:hover{border-color:#6366f1}
-.file-preview{width:100%;height:140px;object-fit:cover;display:block;background:#0d1220}
-.file-preview-pdf{width:100%;height:140px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0d1220;gap:.5rem}
-.pdf-icon{font-size:2rem}
+.file-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+
+/* 
+  FIX FILE CARD: 
+  - Gambar: tampilkan dengan object-fit cover, fallback placeholder jika error
+  - PDF: klik buka di tab baru dengan benar
+  - Tambah tombol "Buka" yang jelas
+*/
+.file-card{
+    background:#080b14;
+    border:1px solid #1a2535;
+    border-radius:13px;
+    overflow:hidden;
+    transition:border-color .2s,transform .2s;
+    display:block;
+    cursor:pointer;
+}
+.file-card:hover{border-color:#6366f1;transform:translateY(-2px)}
+
+/* Preview area */
+.file-preview-wrap{
+    width:100%;
+    height:150px;
+    background:#0d1220;
+    position:relative;
+    overflow:hidden;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+.file-preview-img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
+    transition:transform .3s;
+}
+.file-card:hover .file-preview-img{transform:scale(1.04)}
+
+/* Placeholder saat gambar error */
+.img-placeholder{
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:.4rem;
+    width:100%;
+    height:100%;
+    background:#0d1220;
+}
+.img-placeholder-icon{font-size:2rem;opacity:.4}
+.img-placeholder-txt{font-size:10px;color:#334155}
+
+/* PDF preview */
+.file-preview-pdf{
+    width:100%;
+    height:150px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    background:#0d1220;
+    gap:.5rem;
+    transition:background .2s;
+}
+.file-card:hover .file-preview-pdf{background:#111827}
+.pdf-icon{font-size:2.2rem}
 .pdf-label{font-size:11px;font-weight:700;color:#f87171;letter-spacing:.05em}
-.file-info{padding:.65rem .75rem}
-.file-name{font-size:.75rem;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.file-time{font-size:.7rem;color:#334155;margin-top:.2rem}
-.open-btn{display:flex;align-items:center;justify-content:center;gap:.4rem;margin:.75rem;padding:.5rem;border-radius:8px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.2);color:#a5b4fc;font-size:.75rem;font-weight:700;text-decoration:none;transition:all .2s}
-.open-btn:hover{background:rgba(99,102,241,.2)}
+
+.file-info{padding:.6rem .75rem .3rem}
+.file-name{font-size:.72rem;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-time{font-size:.68rem;color:#334155;margin-top:.18rem}
+
+.open-btn{
+    display:flex;align-items:center;justify-content:center;gap:.4rem;
+    margin:.5rem .6rem .65rem;
+    padding:.45rem;
+    border-radius:8px;
+    background:rgba(99,102,241,.12);
+    border:1px solid rgba(99,102,241,.22);
+    color:#a5b4fc;
+    font-size:.75rem;
+    font-weight:700;
+    text-decoration:none;
+    transition:all .2s;
+}
+.file-card:hover .open-btn{background:rgba(99,102,241,.22)}
+
+/* IMAGE LIGHTBOX */
+.lightbox{
+    position:fixed;inset:0;
+    background:rgba(0,0,0,.92);
+    z-index:99999;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s;
+    flex-direction:column;
+    padding:1rem;
+    backdrop-filter:blur(8px);
+}
+.lightbox.open{opacity:1;pointer-events:all}
+.lightbox img{
+    max-width:100%;
+    max-height:calc(100vh - 120px);
+    object-fit:contain;
+    border-radius:12px;
+    box-shadow:0 0 60px rgba(0,0,0,.6);
+    transition:transform .2s;
+}
+.lightbox-bar{
+    display:flex;align-items:center;gap:10px;
+    margin-top:14px;
+    flex-wrap:wrap;
+    justify-content:center;
+}
+.lightbox-btn{
+    display:flex;align-items:center;gap:.4rem;
+    padding:8px 18px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.15);
+    background:rgba(255,255,255,.08);
+    color:#e2e8f0;
+    font-size:.8rem;font-weight:700;
+    cursor:pointer;
+    text-decoration:none;
+    font-family:inherit;
+    transition:all .15s;
+}
+.lightbox-btn:hover{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.3)}
+.lightbox-close{
+    position:absolute;top:14px;right:14px;
+    width:36px;height:36px;
+    border-radius:50%;
+    border:1px solid rgba(255,255,255,.15);
+    background:rgba(255,255,255,.08);
+    color:#e2e8f0;font-size:18px;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;
+    font-family:inherit;
+    transition:all .15s;
+}
+.lightbox-close:hover{background:rgba(255,255,255,.2)}
+.lightbox-caption{font-size:.75rem;color:#64748b;margin-top:.5rem;text-align:center;max-width:400px}
 
 /* FOOTER */
 .footer{text-align:center;margin-top:2.5rem;color:#1e2d45;font-size:.75rem;padding-bottom:1rem}
@@ -226,7 +406,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
     <div class="header">
         <div class="header-badge">Pusat Belajar</div>
         <h1>Kisi-Kisi <span>Ujian</span></h1>
-        <p>Klik pelajaran untuk lihat materi & file yang sudah diupload admin</p>
+        <p>Klik pelajaran untuk lihat materi, file, dan penjelasan kisi-kisi ujian</p>
     </div>
 
     <div class="stats-bar">
@@ -252,23 +432,47 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
     <div class="day-tabs" id="tabs"></div>
     <div id="cards-container"></div>
 
-    <div class="footer">Dikelola bot WhatsApp &mdash; <code>!update_kisi-kisi [mapel]</code> untuk update materi</div>
+    <div class="footer">Dikelola bot WhatsApp &mdash; <code>!update_kisi-kisi [mapel]</code> untuk upload materi</div>
 </div>
 
-<!-- MODAL -->
+<!-- MODAL UTAMA -->
 <div class="modal-overlay" id="modal" onclick="closeModalOnBg(event)">
     <div class="modal-sheet" id="modal-sheet">
         <div class="modal-handle"></div>
         <div class="modal-header">
             <div class="modal-title-wrap">
                 <div class="modal-mapel-name" id="modal-mapel-name">-</div>
-                <div class="modal-mapel-sub" id="modal-mapel-sub">Memuat file...</div>
+                <div class="modal-mapel-sub" id="modal-mapel-sub">Memuat...</div>
             </div>
             <button class="modal-close" onclick="closeModal()">✕</button>
         </div>
-        <div id="modal-content">
-            <div class="modal-loading"><div class="spin"></div><br>Memuat materi...</div>
+
+        <!-- TABS -->
+        <div class="modal-tabs">
+            <button class="modal-tab active" onclick="switchTab('files',this)">📁 File Materi</button>
+            <button class="modal-tab" onclick="switchTab('info',this)">📋 Kisi-Kisi</button>
         </div>
+
+        <!-- PANEL: File -->
+        <div class="modal-panel show" id="panel-files">
+            <div class="modal-loading"><div class="spin"></div><br>Memuat file...</div>
+        </div>
+
+        <!-- PANEL: Kisi-Kisi Info -->
+        <div class="modal-panel" id="panel-info">
+            <div class="kisi-empty-info">Pilih mata pelajaran untuk lihat kisi-kisi.</div>
+        </div>
+    </div>
+</div>
+
+<!-- IMAGE LIGHTBOX -->
+<div class="lightbox" id="lightbox" onclick="closeLightboxOnBg(event)">
+    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+    <img id="lightbox-img" src="" alt="Preview"/>
+    <div class="lightbox-caption" id="lightbox-caption"></div>
+    <div class="lightbox-bar">
+        <a id="lightbox-dl" href="#" target="_blank" class="lightbox-btn">↗ Buka di tab baru</a>
+        <button class="lightbox-btn" onclick="closeLightbox()">✕ Tutup</button>
     </div>
 </div>
 
@@ -277,7 +481,24 @@ const JADWAL = ${JSON.stringify(jadwalData)};
 const DAY_NAMES = ['','SENIN','SELASA','RABU','KAMIS','JUMAT'];
 const API_BASE = '${domain}';
 let activeDay = ${hariAktif};
+let currentMapel = '';
 
+// ---- KISI-KISI DATA PER MAPEL ----
+// Bisa dikembangkan: isi dengan data kisi-kisi nyata dari database/JSON
+// Format: key = nama mapel (lowercase, no emoji), value = object info
+const KISI_DATA = {
+    default: {
+        tips: 'File kisi-kisi tersedia di tab File Materi. Pastikan kamu sudah mempelajari semua materi yang diupload admin.',
+        catatan: 'Gunakan perintah WhatsApp untuk request kisi-kisi terbaru.'
+    }
+};
+
+function getKisiInfo(mapelName) {
+    const key = mapelName.toLowerCase().trim();
+    return KISI_DATA[key] || KISI_DATA.default;
+}
+
+// ---- RENDER ----
 function renderCards(days) {
     return days.map(d => {
         const data = JADWAL[d];
@@ -339,32 +560,54 @@ function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ---- MODAL TABS ----
+function switchTab(tab, btn) {
+    document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.modal-panel').forEach(p => p.classList.remove('show'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + tab).classList.add('show');
+}
+
 // ---- MODAL ----
 async function openMapel(namaLengkap, hari) {
     const modal = document.getElementById('modal');
     const namaEl = document.getElementById('modal-mapel-name');
     const subEl = document.getElementById('modal-mapel-sub');
-    const contentEl = document.getElementById('modal-content');
+    const panelFiles = document.getElementById('panel-files');
+    const panelInfo = document.getElementById('panel-info');
 
-    // Nama bersih (tanpa emoji di depan)
     const namaBersih = namaLengkap.replace(/^[^\\w]+\\s*/, '');
+    currentMapel = namaBersih;
+
     namaEl.textContent = namaLengkap;
-    subEl.textContent = 'Memuat file materi...';
-    contentEl.innerHTML = '<div class="modal-loading"><div class="spin"></div><br>Mengambil data...</div>';
+    subEl.textContent = 'Memuat data...';
+    panelFiles.innerHTML = '<div class="modal-loading"><div class="spin"></div><br>Mengambil file...</div>';
+    
+    // Reset ke tab file
+    document.querySelectorAll('.modal-tab').forEach((t,i) => t.classList.toggle('active', i===0));
+    document.querySelectorAll('.modal-panel').forEach((p,i) => p.classList.toggle('show', i===0));
+    
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
 
+    // Render kisi-kisi info
+    renderKisiInfo(namaBersih, panelInfo);
+
+    // Fetch files
     try {
-        const res = await fetch(\`/kisi-api/mapel?nama=\${encodeURIComponent(namaBersih)}\`);
+        const res = await fetch('/kisi-api/mapel?nama=' + encodeURIComponent(namaBersih));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const files = await res.json();
 
-        subEl.textContent = files.length > 0 ? \`\${files.length} file tersedia\` : 'Belum ada file materi';
+        subEl.textContent = files.length > 0 
+            ? \`\${files.length} file tersedia\` 
+            : 'Belum ada file materi';
 
         if (files.length === 0) {
-            contentEl.innerHTML = \`
+            panelFiles.innerHTML = \`
             <div class="modal-empty">
                 <div class="modal-empty-icon">📭</div>
-                <div class="modal-empty-title">Belum ada materi</div>
+                <div class="modal-empty-title">Belum ada file materi</div>
                 <div class="modal-empty-sub">Admin belum upload file untuk mapel ini.<br>Gunakan <code>!update_kisi-kisi \${escHtml(namaBersih)}</code> di WhatsApp.</div>
             </div>\`;
             return;
@@ -372,38 +615,162 @@ async function openMapel(namaLengkap, hari) {
 
         const fileCardsHtml = files.map(f => {
             const waktu = f.time ? new Date(f.time).toLocaleString('id-ID') : '-';
+            const safeName = escHtml(f.name);
+            const safeUrl = escHtml(f.url);
+
             if (f.type === 'image') {
+                // FIX: Gambar dibuka via lightbox, bukan langsung link
+                // onerror: tampilkan placeholder, jangan hidden
                 return \`
-                <a class="file-card" href="\${f.url}" target="_blank">
-                    <img class="file-preview" src="\${f.url}" alt="\${escHtml(f.name)}" loading="lazy" onerror="this.style.display='none'"/>
+                <div class="file-card" onclick="openLightbox('\${safeUrl}', '\${safeName}')">
+                    <div class="file-preview-wrap">
+                        <img 
+                            class="file-preview-img" 
+                            src="\${safeUrl}" 
+                            alt="\${safeName}"
+                            loading="lazy"
+                            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+                            crossorigin="anonymous"
+                        />
+                        <div class="img-placeholder">
+                            <div class="img-placeholder-icon">🖼️</div>
+                            <div class="img-placeholder-txt">Gagal muat gambar</div>
+                        </div>
+                    </div>
                     <div class="file-info">
-                        <div class="file-name">\${escHtml(f.name)}</div>
+                        <div class="file-name" title="\${safeName}">\${safeName}</div>
                         <div class="file-time">\${waktu}</div>
                     </div>
-                </a>\`;
+                    <div class="open-btn">🔍 Lihat Gambar</div>
+                </div>\`;
             } else {
+                // FIX: PDF dibuka dengan window.open langsung, bukan link biasa
                 return \`
-                <a class="file-card" href="\${f.url}" target="_blank">
+                <div class="file-card" onclick="openPdf('\${safeUrl}')">
                     <div class="file-preview-pdf">
                         <div class="pdf-icon">📄</div>
                         <div class="pdf-label">PDF</div>
                     </div>
                     <div class="file-info">
-                        <div class="file-name">\${escHtml(f.name)}</div>
+                        <div class="file-name" title="\${safeName}">\${safeName}</div>
                         <div class="file-time">\${waktu}</div>
                     </div>
-                    <div class="open-btn">Buka PDF ↗</div>
-                </a>\`;
+                    <div class="open-btn">↗ Buka PDF</div>
+                </div>\`;
             }
         }).join('');
 
-        contentEl.innerHTML = \`<div class="file-grid">\${fileCardsHtml}</div>\`;
+        panelFiles.innerHTML = \`<div class="file-grid">\${fileCardsHtml}</div>\`;
+
     } catch (err) {
+        console.error('Fetch error:', err);
         subEl.textContent = 'Gagal memuat';
-        contentEl.innerHTML = '<div class="modal-empty"><div class="modal-empty-icon">⚠️</div><div class="modal-empty-title">Gagal mengambil data</div><div class="modal-empty-sub">Periksa koneksi dan coba lagi.</div></div>';
+        panelFiles.innerHTML = \`
+        <div class="modal-empty">
+            <div class="modal-empty-icon">⚠️</div>
+            <div class="modal-empty-title">Gagal mengambil data</div>
+            <div class="modal-empty-sub">Periksa koneksi internet dan coba lagi.<br><small style="color:#334155">Error: \${escHtml(err.message)}</small></div>
+        </div>\`;
     }
 }
 
+// ---- KISI-KISI INFO ----
+function renderKisiInfo(mapelName, container) {
+    const info = getKisiInfo(mapelName);
+    
+    // Cek apakah ada data spesifik
+    const hasSpecific = info && KISI_DATA[mapelName.toLowerCase().trim()] !== undefined 
+                        && KISI_DATA[mapelName.toLowerCase().trim()] !== KISI_DATA.default;
+
+    let html = '';
+
+    if (hasSpecific && info.bab) {
+        html += \`<div class="kisi-info-box">
+            <div class="kisi-info-title">Bab / Materi yang Diujikan</div>
+            <div class="kisi-info-content"><ul>\${info.bab.map(b=>\`<li>\${escHtml(b)}</li>\`).join('')}</ul></div>
+        </div>\`;
+    }
+
+    if (hasSpecific && info.bentuk) {
+        html += \`<div class="kisi-info-box">
+            <div class="kisi-info-title">Bentuk Soal</div>
+            <div class="kisi-info-content">\${escHtml(info.bentuk)}</div>
+        </div>\`;
+    }
+
+    if (hasSpecific && info.jumlah) {
+        html += \`<div class="kisi-info-box">
+            <div class="kisi-info-title">Jumlah Soal</div>
+            <div class="kisi-info-content">\${escHtml(info.jumlah)}</div>
+        </div>\`;
+    }
+
+    if (!hasSpecific) {
+        html += \`<div class="kisi-info-box">
+            <div class="kisi-info-title">Informasi Kisi-Kisi</div>
+            <div class="kisi-info-content">
+                Kisi-kisi untuk <strong>\${escHtml(mapelName)}</strong> belum tersedia di sistem.<br><br>
+                Lihat file yang sudah diupload admin di tab <strong>File Materi</strong> untuk mendapatkan kisi-kisi terbaru.
+            </div>
+        </div>\`;
+    }
+
+    if (info.tips) {
+        html += \`<div class="kisi-tip">
+            💡 <strong>Tips Belajar:</strong> \${escHtml(info.tips)}
+        </div>\`;
+    }
+
+    html += \`<div class="kisi-tip" style="margin-top:.5rem;background:rgba(251,191,36,.06);border-color:rgba(251,191,36,.18);color:#fbbf24">
+        📲 <strong>Update kisi-kisi:</strong> Kirim pesan <code style="background:rgba(0,0,0,.3);padding:1px 5px;border-radius:4px">!update_kisi-kisi \${escHtml(mapelName)}</code> di WhatsApp untuk meminta admin upload file terbaru.
+    </div>\`;
+
+    container.innerHTML = html;
+}
+
+// ---- PDF OPENER (FIX) ----
+function openPdf(url) {
+    // window.open adalah cara paling reliable buka PDF
+    const w = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!w) {
+        // Fallback jika popup diblokir: buat link temporer dan klik
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+}
+
+// ---- IMAGE LIGHTBOX (FIX) ----
+function openLightbox(url, name) {
+    const lb = document.getElementById('lightbox');
+    const img = document.getElementById('lightbox-img');
+    const dl = document.getElementById('lightbox-dl');
+    const caption = document.getElementById('lightbox-caption');
+
+    img.src = '';
+    img.alt = name;
+    img.src = url;
+    dl.href = url;
+    caption.textContent = name;
+
+    lb.classList.add('open');
+    // Jangan block body scroll di lightbox, biar modal tetap bisa di-close dulu
+}
+
+function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('open');
+    document.getElementById('lightbox-img').src = '';
+}
+
+function closeLightboxOnBg(e) {
+    if (e.target === document.getElementById('lightbox')) closeLightbox();
+}
+
+// ---- MODAL CLOSE ----
 function closeModal() {
     document.getElementById('modal').classList.remove('open');
     document.body.style.overflow = '';
@@ -413,7 +780,15 @@ function closeModalOnBg(e) {
     if (e.target === document.getElementById('modal')) closeModal();
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        if (document.getElementById('lightbox').classList.contains('open')) {
+            closeLightbox();
+        } else {
+            closeModal();
+        }
+    }
+});
 
 buildTabs();
 switchDay(activeDay);
