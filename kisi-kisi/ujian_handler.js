@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
-// --- IMPORT FUNGSI LENGKAP ---
 const { 
     buatTeksKisi, 
     buatTeksKisiFull, 
@@ -23,7 +22,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
     const isUserAdmin = isAdmin(sender);
 
     switch (command) {
-        // --- MENU BANTUAN (LOGIKA DISINI) ---
         case '!menu_praktek':
         case '!menu_ujian':
         case '!bantuan_ujian_praktek': {
@@ -38,14 +36,17 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                             `━━━━━━━━━━━━━━━━━━━━\n` +
                             `📝 *!info_kisi-kisi [pesan]*\n` +
                             `➝ Kirim info ke grup + media\n\n` +
-                            `📥 *!update_kisi-kisi*\n` +
-                            `➝ Simpan file (Reply gambar/pdf)\n\n` +
+                            `📥 *!update_kisi-kisi [nama_mapel]*\n` +
+                            `➝ Simpan file per mapel (Reply/Lampir gambar/pdf)\n` +
+                            `➝ Contoh: !update_kisi-kisi Matematika\n\n` +
                             `🆙 *!update_praktek [hari] [mapel] [ket]*\n` +
                             `➝ Update jadwal praktek\n\n` +
                             `🗑️ *!hapus_praktek [hari]*\n` +
                             `➝ Hapus jadwal praktek hari tertentu\n\n` +
-                            `🧹 *!hapus_kisi*\n` +
-                            `➝ Hapus semua file database kisi\n`;
+                            `🧹 *!hapus_kisi [mapel]*\n` +
+                            `➝ Hapus file mapel tertentu\n` +
+                            `➝ Contoh: !hapus_kisi Matematika\n` +
+                            `➝ Tanpa nama mapel = hapus semua\n`;
             }
 
             helpTeks += `\n━━━━━━━━━━━━━━━━━━━━`;
@@ -57,7 +58,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
         case '!info_kisi-kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
 
-            // FIX: ambil quotedMessage dulu biar konsisten
             const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
             const isImage = !!(msg.message?.imageMessage || quotedMsg?.imageMessage);
             const isDoc = !!(msg.message?.documentMessage || quotedMsg?.documentMessage);
@@ -65,24 +65,19 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
             if (isImage || isDoc) {
                 try {
-                    // FIX: kalau media dari quoted, bungkus dulu jadi msg-like object
                     const targetMsg = (quotedMsg?.imageMessage || quotedMsg?.documentMessage)
                         ? { message: quotedMsg, key: msg.key }
                         : msg;
 
                     const buffer = await downloadMediaMessage(targetMsg, 'buffer', {});
-
-                    // FIX: pastikan buffer valid sebelum disimpan
                     if (!buffer || buffer.length === 0) throw new Error("Buffer kosong");
 
                     const ext = isImage ? '.jpg' : '.pdf';
                     const fileName = `info_ujian_${Date.now()}${ext}`;
-                    
                     fs.writeFileSync(path.join(KISI_FILES_PATH, fileName), buffer);
                     mediaSection = `\n\n🔗 *Link File:* ${MY_DOMAIN}/kisi_ujian/${fileName}`;
                 } catch (err) {
                     console.error("Error download media info_kisi-kisi:", err);
-                    // FIX: tidak return, lanjut kirim teks saja kalau media gagal
                     mediaSection = "";
                 }
             }
@@ -90,40 +85,45 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             const teksInfo = bodyParts.slice(1).join(' ');
             if (!teksInfo && !mediaSection) return reply("⚠️ Masukkan pesan info!");
 
-            const pesanKeGrup = `📢 *PENGUMUMAN KISI-KISI UJIAN* 📢\n\n${teksInfo}${mediaSection}\n\n━━━━━━━━━━━━━━━━━━━━\n_Gunakan !cek_kisi-kisi untuk rekap lengkap._`;
-            
+            const pesanKeGrup = `📢 *PENGUMUMAN KISI-KISI UJIAN* 📢\n\n${teksInfo}${mediaSection}\n\n━━━━━━━━━━━━━━━━━━━━\n_Gunakan !kisi-kisi untuk rekap lengkap._`;
             await sock.sendMessage(ID_GRUP_TUJUAN, { text: pesanKeGrup });
             await reply("✅ Info telah dikirim ke grup tujuan.");
             break;
         }
 
-        // 2. UPDATE KE DATA KISI-KISI
+        // 2. UPDATE KISI-KISI PER MAPEL
         case '!update_kisi-kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
-            
-            // FIX: cek juga quoted message untuk support reply ke gambar/pdf
+
+            // Wajib sebut nama mapel
+            const namaMapel = bodyParts.slice(1).join(' ').trim();
+            if (!namaMapel) return reply(
+                "⚠️ Format: *!update_kisi-kisi [nama_mapel]*\n" +
+                "Contoh: *!update_kisi-kisi Matematika*\n" +
+                "Lampirkan atau reply file (Gambar/PDF) sekalian."
+            );
+
             const quotedMsg2 = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
             const isImage = !!(msg.message?.imageMessage || quotedMsg2?.imageMessage);
             const isDoc = !!(msg.message?.documentMessage || quotedMsg2?.documentMessage);
 
-            if (!isImage && !isDoc) return reply("⚠️ Lampirkan file (Gambar/PDF)!");
+            if (!isImage && !isDoc) return reply("⚠️ Lampirkan atau reply file (Gambar/PDF)!");
 
             try {
-                // FIX: sama seperti di atas, handle quoted media
                 const targetMsg2 = (quotedMsg2?.imageMessage || quotedMsg2?.documentMessage)
                     ? { message: quotedMsg2, key: msg.key }
                     : msg;
 
                 const buffer = await downloadMediaMessage(targetMsg2, 'buffer', {});
-
-                // FIX: validasi buffer
                 if (!buffer || buffer.length === 0) throw new Error("Buffer kosong");
 
                 const ext = isImage ? '.jpg' : '.pdf';
-                const fileName = `data_kisi_${Date.now()}${ext}`;
-                
+                // Nama file mengandung nama mapel agar bisa difilter di web
+                const safeMapel = namaMapel.replace(/[^a-zA-Z0-9]/g, '_');
+                const fileName = `kisi_${safeMapel}_${Date.now()}${ext}`;
+
                 fs.writeFileSync(path.join(KISI_FILES_PATH, fileName), buffer);
-                await reply(`✅ *Data Tersimpan.*`);
+                await reply(`✅ *Data Tersimpan!*\n📚 Mapel: *${namaMapel}*\n📄 File: ${fileName}`);
             } catch (err) {
                 console.error("Error update_kisi-kisi:", err);
                 reply("❌ Gagal menyimpan data.");
@@ -136,16 +136,12 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
         case '!cek_kisi-kisi': {
             try {
                 const rekapTeks = await buatTeksKisi();
-
-                // FIX: validasi hasil buatTeksKisi sebelum kirim
                 if (!rekapTeks || rekapTeks.trim().length === 0) {
                     return reply("ℹ️ Belum ada data kisi-kisi untuk hari ini.");
                 }
-
                 const pesanFull = `📚 *REKAP MATERI KISI-KISI UJIAN* 📚\n\n` + 
                                   rekapTeks + 
                                   `\n\n⚠️ *Cek link folder di atas untuk melihat file materi.*`;
-
                 await sock.sendMessage(from, { text: pesanFull });
             } catch (err) {
                 console.error("Error kisi-kisi:", err);
@@ -158,12 +154,9 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
         case '!kisi-kisi_full': {
             try {
                 const rekapFull = await buatTeksKisiFull();
-
-                // FIX: validasi hasil sebelum kirim
                 if (!rekapFull || rekapFull.trim().length === 0) {
                     return reply("ℹ️ Belum ada data kisi-kisi minggu ini.");
                 }
-
                 await sock.sendMessage(from, { text: rekapFull });
             } catch (err) {
                 console.error("Error kisi-kisi_full:", err);
@@ -176,7 +169,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
         case '!praktek': {
             try {
                 const teksPraktek = await buatTeksPraktek();
-                // Jika data kosong atau tidak ada jadwal
                 if (!teksPraktek || teksPraktek.trim().length < 5) {
                     return reply("ℹ️ *INFO PRAKTEK*\n\nBelum ada jadwal ujian praktek yang tersedia saat ini. Tetap semangat belajar! ☕");
                 }
@@ -197,7 +189,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             const mapel = bodyParts[2];
             const penjelasan = bodyParts.slice(3).join(' ');
 
-            // FIX: trim input agar tidak ada whitespace nyasar
             const sukses = await updatePraktekData(hari.trim().toLowerCase(), mapel.trim(), penjelasan.trim());
             if (sukses) {
                 await reply(`✅ *Berhasil Update Praktek!*\nHari: ${hari}\nMapel: ${mapel}`);
@@ -210,7 +201,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
         // 7. HAPUS JADWAL PRAKTEK (Admin Only)
         case '!hapus_praktek': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
-            const hariInput = bodyParts[1]?.toLowerCase()?.trim(); // FIX: tambah trim()
+            const hariInput = bodyParts[1]?.toLowerCase()?.trim();
             if (!hariInput) return reply("⚠️ Sebutkan harinya! Contoh: *!hapus_praktek senin*");
 
             const sukses = await updatePraktekData(hariInput, "Tidak ada", "jadwal praktek");
@@ -222,24 +213,33 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             break;
         }
 
-        // 8. HAPUS SEMUA FILE KISI-KISI (Admin Only)
+        // 8. HAPUS FILE KISI-KISI (Admin Only)
         case '!hapus_kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
             try {
-                // FIX: pastikan folder ada sebelum readdir
                 if (!fs.existsSync(KISI_FILES_PATH)) {
                     return reply("⚠️ Folder kisi tidak ditemukan.");
                 }
 
-                const files = fs.readdirSync(KISI_FILES_PATH);
+                const namaMapelHapus = bodyParts.slice(1).join(' ').trim();
+                const allFiles = fs.readdirSync(KISI_FILES_PATH);
 
-                // FIX: kalau folder kosong, kasih info
-                if (files.length === 0) {
-                    return reply("ℹ️ Tidak ada file yang perlu dihapus.");
+                // Kalau ada nama mapel → hapus spesifik. Kalau kosong → hapus semua
+                let targetFiles;
+                if (namaMapelHapus) {
+                    const safeMapel = namaMapelHapus.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+                    targetFiles = allFiles.filter(f => f.toLowerCase().includes(safeMapel));
+                    if (targetFiles.length === 0) {
+                        return reply(`⚠️ Tidak ada file untuk mapel *${namaMapelHapus}*.`);
+                    }
+                } else {
+                    targetFiles = allFiles;
                 }
 
+                if (targetFiles.length === 0) return reply("ℹ️ Tidak ada file yang perlu dihapus.");
+
                 let gagal = 0;
-                files.forEach(file => {
+                targetFiles.forEach(file => {
                     try {
                         fs.unlinkSync(path.join(KISI_FILES_PATH, file));
                     } catch (e) {
@@ -248,10 +248,12 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                     }
                 });
 
+                const berhasil = targetFiles.length - gagal;
+                const infoMapel = namaMapelHapus ? ` mapel *${namaMapelHapus}*` : '';
                 if (gagal > 0) {
-                    await reply(`⚠️ ${files.length - gagal} file berhasil dihapus, ${gagal} file gagal dihapus.`);
+                    await reply(`⚠️ ${berhasil} file${infoMapel} berhasil dihapus, ${gagal} file gagal.`);
                 } else {
-                    await reply(`✅ Berhasil menghapus ${files.length} file materi kisi-kisi.`);
+                    await reply(`✅ Berhasil menghapus ${berhasil} file${infoMapel}.`);
                 }
             } catch (err) {
                 console.error("Error hapus_kisi:", err);
