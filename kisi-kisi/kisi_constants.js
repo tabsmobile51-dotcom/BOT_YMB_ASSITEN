@@ -6,6 +6,15 @@ const JADWAL_PELAJARAN = {
     5: "💂 Bahasa Inggris\n☁️ Bahasa Cirebon" // Jumat
 };
 
+// FIX: JADWAL_PRAKTEK default (dipakai getStoredPraktek() sebagai fallback)
+const JADWAL_PRAKTEK = {
+    1: "Tidak ada jadwal praktek",
+    2: "Tidak ada jadwal praktek",
+    3: "Tidak ada jadwal praktek",
+    4: "Tidak ada jadwal praktek",
+    5: "Tidak ada jadwal praktek"
+};
+
 const MOTIVASI_SEKOLAH = [
     "Semangat belajarnya ya! Masa depan cerah menantimu. ✨",
     "Jangan malas hari ini, kesuksesan butuh kerja keras. 💪",
@@ -18,4 +27,7 @@ const MOTIVASI_SEKOLAH = [
 const ADMIN_RAW = ['6289531549103', '171425214255294', '6285158738155', '241849843351688', '254326740103190', '8474121494667'];
 const ID_GRUP_TUJUAN = '120363403625197368@g.us';
 
-module.exports = { JADWAL_PELAJARAN, MOTIVASI_SEKOLAH, ADMIN_RAW, ID_GRUP_TUJUAN };
+// FIX: KISI_FILES_PATH wajib ada, sesuaikan path dengan struktur server kamu
+const KISI_FILES_PATH = '/app/auth_info/kisi_ujian';
+
+module.exports = { JADWAL_PELAJARAN, JADWAL_PRAKTEK, MOTIVASI_SEKOLAH, ADMIN_RAW, ID_GRUP_TUJUAN, KISI_FILES_PATH };
