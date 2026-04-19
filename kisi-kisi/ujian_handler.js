@@ -9,7 +9,7 @@ const {
     updatePraktekData, 
     getStoredPraktek 
 } = require('./ujian_logic');
-const { ID_GRUP_TUJUAN } = require('./kisi_constants');
+const { ID_GRUP_TUJUAN, LIST_HARI } = require('./kisi_constants');
 
 /**
  * HANDLER KHUSUS PERINTAH UJIAN & PRAKTEK
@@ -20,6 +20,9 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
     const bodyParts = body.split(' ');
     const command = bodyParts[0].toLowerCase();
     const isUserAdmin = isAdmin(sender);
+
+    // Daftar hari wajib untuk validasi kisi-kisi & info
+    const daftarHariWajib = LIST_HARI || ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu'];
 
     switch (command) {
         case '!menu_praktek':
@@ -34,19 +37,16 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             if (isUserAdmin) {
                 helpTeks += `🛠️ *TOOLS ADMIN*\n` +
                             `━━━━━━━━━━━━━━━━━━━━\n` +
-                            `📝 *!info_kisi-kisi [pesan]*\n` +
-                            `➝ Kirim info ke grup + media\n\n` +
-                            `📥 *!update_kisi-kisi [nama_mapel]*\n` +
-                            `➝ Simpan file per mapel (Reply/Lampir gambar/pdf)\n` +
-                            `➝ Contoh: !update_kisi-kisi Matematika\n\n` +
+                            `📝 *!info_kisi-kisi [hari] [pesan]*\n` +
+                            `➝ Kirim info ke grup (Wajib hari valid)\n\n` +
+                            `📥 *!update_kisi-kisi [hari] [mapel]*\n` +
+                            `➝ Simpan file per mapel (Wajib hari valid)\n\n` +
                             `🆙 *!update_praktek [hari] [mapel] [ket]*\n` +
-                            `➝ Update jadwal praktek\n\n` +
+                            `➝ Update jadwal praktek (Bebas/Custom)\n\n` +
                             `🗑️ *!hapus_praktek [hari]*\n` +
                             `➝ Hapus jadwal praktek hari tertentu\n\n` +
                             `🧹 *!hapus_kisi [mapel]*\n` +
-                            `➝ Hapus file mapel tertentu\n` +
-                            `➝ Contoh: !hapus_kisi Matematika\n` +
-                            `➝ Tanpa nama mapel = hapus semua\n`;
+                            `➝ Hapus file mapel tertentu\n`;
             }
 
             helpTeks += `\n━━━━━━━━━━━━━━━━━━━━`;
@@ -54,9 +54,14 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             break;
         }
 
-        // 1. INFO & KIRIM KE GRUP
+        // 1. INFO & KIRIM KE GRUP (Wajib validasi hari)
         case '!info_kisi-kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
+
+            const hariInput = bodyParts[1]?.toLowerCase();
+            if (!daftarHariWajib.includes(hariInput)) {
+                return reply(`⚠️ Hari tidak valid!\nFormat: *!info_kisi-kisi [hari] [pesan]*\nContoh: !info_kisi-kisi senin Besok bawa alat tulis.`);
+            }
 
             const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
             const isImage = !!(msg.message?.imageMessage || quotedMsg?.imageMessage);
@@ -73,7 +78,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                     if (!buffer || buffer.length === 0) throw new Error("Buffer kosong");
 
                     const ext = isImage ? '.jpg' : '.pdf';
-                    const fileName = `info_ujian_${Date.now()}${ext}`;
+                    const fileName = `info_${hariInput}_${Date.now()}${ext}`;
                     fs.writeFileSync(path.join(KISI_FILES_PATH, fileName), buffer);
                     mediaSection = `\n\n🔗 *Link File:* ${MY_DOMAIN}/kisi_ujian/${fileName}`;
                 } catch (err) {
@@ -82,26 +87,26 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                 }
             }
 
-            const teksInfo = bodyParts.slice(1).join(' ');
+            const teksInfo = bodyParts.slice(2).join(' ');
             if (!teksInfo && !mediaSection) return reply("⚠️ Masukkan pesan info!");
 
-            const pesanKeGrup = `📢 *PENGUMUMAN KISI-KISI UJIAN* 📢\n\n${teksInfo}${mediaSection}\n\n━━━━━━━━━━━━━━━━━━━━\n_Gunakan !kisi-kisi untuk rekap lengkap._`;
+            const pesanKeGrup = `📢 *PENGUMUMAN KISI-KISI (${hariInput.toUpperCase()})* 📢\n\n${teksInfo}${mediaSection}\n\n━━━━━━━━━━━━━━━━━━━━\n_Gunakan !kisi-kisi untuk rekap lengkap._`;
             await sock.sendMessage(ID_GRUP_TUJUAN, { text: pesanKeGrup });
-            await reply("✅ Info telah dikirim ke grup tujuan.");
+            await reply(`✅ Info kisi-kisi hari *${hariInput}* telah dikirim.`);
             break;
         }
 
-        // 2. UPDATE KISI-KISI PER MAPEL
+        // 2. UPDATE KISI-KISI PER MAPEL (Wajib validasi hari)
         case '!update_kisi-kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
 
-            // Wajib sebut nama mapel
-            const namaMapel = bodyParts.slice(1).join(' ').trim();
-            if (!namaMapel) return reply(
-                "⚠️ Format: *!update_kisi-kisi [nama_mapel]*\n" +
-                "Contoh: *!update_kisi-kisi Matematika*\n" +
-                "Lampirkan atau reply file (Gambar/PDF) sekalian."
-            );
+            const hariInput = bodyParts[1]?.toLowerCase();
+            if (!daftarHariWajib.includes(hariInput)) {
+                return reply(`⚠️ Hari tidak valid!\nContoh: *!update_kisi-kisi senin Matematika*`);
+            }
+
+            const namaMapel = bodyParts.slice(2).join(' ').trim();
+            if (!namaMapel) return reply("⚠️ Sebutkan nama mapel setelah hari!");
 
             const quotedMsg2 = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
             const isImage = !!(msg.message?.imageMessage || quotedMsg2?.imageMessage);
@@ -118,12 +123,11 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                 if (!buffer || buffer.length === 0) throw new Error("Buffer kosong");
 
                 const ext = isImage ? '.jpg' : '.pdf';
-                // Nama file mengandung nama mapel agar bisa difilter di web
                 const safeMapel = namaMapel.replace(/[^a-zA-Z0-9]/g, '_');
-                const fileName = `kisi_${safeMapel}_${Date.now()}${ext}`;
+                const fileName = `kisi_${hariInput}_${safeMapel}_${Date.now()}${ext}`;
 
                 fs.writeFileSync(path.join(KISI_FILES_PATH, fileName), buffer);
-                await reply(`✅ *Data Tersimpan!*\n📚 Mapel: *${namaMapel}*\n📄 File: ${fileName}`);
+                await reply(`✅ *Data Tersimpan!*\n📅 Hari: *${hariInput}*\n📚 Mapel: *${namaMapel}*\n📄 File: ${fileName}`);
             } catch (err) {
                 console.error("Error update_kisi-kisi:", err);
                 reply("❌ Gagal menyimpan data.");
@@ -150,7 +154,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             break;
         }
 
-        // 4. CEK REKAP FULL (Senin - Jumat)
+        // 4. CEK REKAP FULL
         case '!kisi-kisi_full': {
             try {
                 const rekapFull = await buatTeksKisiFull();
@@ -170,7 +174,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             try {
                 const teksPraktek = await buatTeksPraktek();
                 if (!teksPraktek || teksPraktek.trim().length < 5) {
-                    return reply("ℹ️ *INFO PRAKTEK*\n\nBelum ada jadwal ujian praktek yang tersedia saat ini. Tetap semangat belajar! ☕");
+                    return reply("ℹ️ *INFO PRAKTEK*\n\nBelum ada jadwal ujian praktek yang tersedia saat ini.");
                 }
                 await sock.sendMessage(from, { text: teksPraktek }, { quoted: msg });
             } catch (err) {
@@ -180,40 +184,41 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             break;
         }
 
-        // 6. UPDATE JADWAL PRAKTEK (Admin Only)
+        // 6. UPDATE JADWAL PRAKTEK (Bebas/Custom)
         case '!update_praktek': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
-            if (bodyParts.length < 4) return reply("⚠️ Format: *!update_praktek [hari] [mapel] [penjelasan]*\nContoh: !update_praktek senin Informatika Coding_Web");
+            if (bodyParts.length < 4) return reply("⚠️ Format: *!update_praktek [hari] [mapel] [penjelasan]*");
 
             const hari = bodyParts[1];
             const mapel = bodyParts[2];
             const penjelasan = bodyParts.slice(3).join(' ');
 
-            const sukses = await updatePraktekData(hari.trim().toLowerCase(), mapel.trim(), penjelasan.trim());
+            // Disini tidak pakai validasi hari agar user bebas isi hari apapun
+            const sukses = await updatePraktekData(hari.trim(), mapel.trim(), penjelasan.trim());
             if (sukses) {
                 await reply(`✅ *Berhasil Update Praktek!*\nHari: ${hari}\nMapel: ${mapel}`);
             } else {
-                await reply("❌ Gagal. Pastikan hari benar (senin-jumat).");
+                await reply("❌ Gagal menyimpan data praktek.");
             }
             break;
         }
 
-        // 7. HAPUS JADWAL PRAKTEK (Admin Only)
+        // 7. HAPUS JADWAL PRAKTEK
         case '!hapus_praktek': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
-            const hariInput = bodyParts[1]?.toLowerCase()?.trim();
+            const hariInput = bodyParts[1]?.trim();
             if (!hariInput) return reply("⚠️ Sebutkan harinya! Contoh: *!hapus_praktek senin*");
 
             const sukses = await updatePraktekData(hariInput, "Tidak ada", "jadwal praktek");
             if (sukses) {
                 await reply(`✅ Jadwal praktek hari *${hariInput}* telah dihapus.`);
             } else {
-                await reply("❌ Gagal. Hari tidak valid.");
+                await reply("❌ Gagal menghapus.");
             }
             break;
         }
 
-        // 8. HAPUS FILE KISI-KISI (Admin Only)
+        // 8. HAPUS FILE KISI-KISI
         case '!hapus_kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
             try {
@@ -224,37 +229,18 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                 const namaMapelHapus = bodyParts.slice(1).join(' ').trim();
                 const allFiles = fs.readdirSync(KISI_FILES_PATH);
 
-                // Kalau ada nama mapel → hapus spesifik. Kalau kosong → hapus semua
                 let targetFiles;
                 if (namaMapelHapus) {
                     const safeMapel = namaMapelHapus.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
                     targetFiles = allFiles.filter(f => f.toLowerCase().includes(safeMapel));
-                    if (targetFiles.length === 0) {
-                        return reply(`⚠️ Tidak ada file untuk mapel *${namaMapelHapus}*.`);
-                    }
                 } else {
                     targetFiles = allFiles;
                 }
 
-                if (targetFiles.length === 0) return reply("ℹ️ Tidak ada file yang perlu dihapus.");
+                if (targetFiles.length === 0) return reply("ℹ️ Tidak ada file yang cocok.");
 
-                let gagal = 0;
-                targetFiles.forEach(file => {
-                    try {
-                        fs.unlinkSync(path.join(KISI_FILES_PATH, file));
-                    } catch (e) {
-                        console.error("Gagal hapus file:", file, e);
-                        gagal++;
-                    }
-                });
-
-                const berhasil = targetFiles.length - gagal;
-                const infoMapel = namaMapelHapus ? ` mapel *${namaMapelHapus}*` : '';
-                if (gagal > 0) {
-                    await reply(`⚠️ ${berhasil} file${infoMapel} berhasil dihapus, ${gagal} file gagal.`);
-                } else {
-                    await reply(`✅ Berhasil menghapus ${berhasil} file${infoMapel}.`);
-                }
+                targetFiles.forEach(file => fs.unlinkSync(path.join(KISI_FILES_PATH, file)));
+                await reply(`✅ Berhasil menghapus ${targetFiles.length} file.`);
             } catch (err) {
                 console.error("Error hapus_kisi:", err);
                 reply("❌ Gagal menghapus file.");
