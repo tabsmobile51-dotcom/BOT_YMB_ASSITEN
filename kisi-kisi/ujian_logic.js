@@ -46,7 +46,8 @@ async function buatTeksKisi(hariOverride = null) {
 
     mapelList.forEach(mapel => {
         teks += `${mapel}\n`;
-        teks += `└─ 🔗 *Materi:* ${process.env.MY_DOMAIN || 'http://localhost'}/kisi_ujian/\n\n`;
+        // UPDATE LINK KISI-KISI
+        teks += `└─ 🔗 *Materi:* https://botymbassiten-production.up.railway.app/kisi-kisi\n\n`;
     });
 
     teks += `━━━━━━━━━━━━━━━━━━━━\n`;
@@ -80,7 +81,8 @@ async function buatTeksKisiFull() {
 
     teks += `━━━━━━━━━━━━━━━━━━━━\n`;
     teks += `🔗 *Download Semua Materi:* \n`;
-    teks += `${process.env.MY_DOMAIN || 'http://localhost'}/kisi_ujian/\n\n`;
+    // UPDATE LINK FULL
+    teks += `https://botymbassiten-production.up.railway.app/kisi-kisi\n\n`;
     teks += `*Pelajari semua materi di atas untuk hasil maksimal!* 🔥`;
 
     return teks;
@@ -143,6 +145,8 @@ async function buatTeksPraktek(hariOverride = null) {
         teks += `📅 *Persiapan: ${dayLabels[hari].toUpperCase()}*\n`;
         teks += `━━━━━━━━━━━━━━━━━━━━\n\n`;
         teks += `${praktekList}\n\n`;
+        // UPDATE LINK PRAKTEK
+        teks += `🔗 *Detail:* https://botymbassiten-production.up.railway.app/kisi-kisi\n`;
         teks += `━━━━━━━━━━━━━━━━━━━━\n`;
         teks += `💡 _${semangatRandom}_`;
 
