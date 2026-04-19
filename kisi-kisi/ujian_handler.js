@@ -77,7 +77,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             break;
         }
 
-        // 1. INFO & KIRIM KE GRUP (Wajib validasi hari)
+        // 1. INFO & KIRIM KE GRUP
         case '!info_kisi-kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
 
@@ -149,7 +149,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             break;
         }
 
-        // 2. UPDATE KISI-KISI PER MAPEL (MODIFIKASI: File Opsional jika ada penjelasan)
+        // 2. UPDATE KISI-KISI PER MAPEL
         case '!update_kisi-kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
 
@@ -171,14 +171,12 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             const isImage = !!(msg.message?.imageMessage || quotedMsg2?.imageMessage);
             const isDoc = !!(msg.message?.documentMessage || quotedMsg2?.documentMessage);
 
-            // Validasi: Harus ada salah satu (Media atau Teks Penjelasan)
             if (!isImage && !isDoc && !penjelasanTeks) {
                 return reply("⚠️ Lampirkan file (Gambar/PDF) atau tambahkan penjelasan teks setelah tanda ' | '!");
             }
 
             try {
                 let fileName = null;
-                // Proses download file hanya jika user melampirkan media
                 if (isImage || isDoc) {
                     const targetMsg2 = (quotedMsg2?.imageMessage || quotedMsg2?.documentMessage)
                         ? { message: quotedMsg2, key: msg.key }
@@ -193,19 +191,16 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                     }
                 }
 
-                // Proses Simpan ke JSON Penjelasan
                 const penjelasanData = getPenjelasanData();
                 const key = namaMapel.toLowerCase().trim();
                 if (!penjelasanData[key]) penjelasanData[key] = {};
 
-                // Update data teks, hari, dan timestamp
                 if (penjelasanTeks) {
                     penjelasanData[key].teks = penjelasanTeks;
                 }
                 penjelasanData[key].hari = hariInput;
                 penjelasanData[key].updatedAt = new Date().toISOString();
 
-                // Simpan info file ke list jika berhasil didownload
                 if (fileName) {
                     if (!penjelasanData[key].files) penjelasanData[key].files = [];
                     penjelasanData[key].files.push({
@@ -311,66 +306,55 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
         case '!hapus_kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
             try {
-                if (!fs.existsSync(KISI_FILES_PATH)) {
-                    return reply("⚠️ Folder kisi tidak ditemukan.");
-                }
-
                 const namaMapelHapus = bodyParts.slice(1).join(' ').trim();
-                const allFiles = fs.readdirSync(KISI_FILES_PATH);
+                if (!namaMapelHapus) return reply("⚠️ Sebutkan nama mapel! Contoh: *!hapus_kisi matematika*");
 
-                let targetFiles;
-                if (namaMapelHapus) {
-                    const safeMapel = namaMapelHapus.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-                    targetFiles = allFiles.filter(f => f.toLowerCase().includes(safeMapel));
-                } else {
-                    targetFiles = allFiles;
-                }
+                const safeMapelHapus = namaMapelHapus.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+                const keyHapus = namaMapelHapus.toLowerCase().trim();
 
-                if (targetFiles.length === 0) return reply("ℹ️ Tidak ada file yang cocok.");
+                // 1. HAPUS DATA DI JSON
+                const penjelasanData = getPenjelasanData();
+                let terhapusJson = 0;
 
-                // Hapus file fisik
-                targetFiles.forEach(file => fs.unlinkSync(path.join(KISI_FILES_PATH, file)));
-
-                // FIX: Hapus juga data di kisi_penjelasan.json
-                // Sinkron dengan cara bot simpan key: namaMapel.toLowerCase().trim()
-                try {
-                    const penjelasanData = getPenjelasanData();
-                    const keyHapus = namaMapelHapus.toLowerCase().trim();
-                    const safeMapelHapus = namaMapelHapus.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-                    let terhapusJson = 0;
-
-                    // Hapus key yang exact match atau partial match (sama logika file)
-                    for (const k of Object.keys(penjelasanData)) {
-                        const kNorm = k.toLowerCase().trim();
-                        const kSafe = k.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-                        if (
-                            kNorm === keyHapus ||
-                            kNorm.includes(keyHapus) ||
-                            keyHapus.includes(kNorm) ||
-                            kSafe.includes(safeMapelHapus) ||
-                            safeMapelHapus.includes(kSafe)
-                        ) {
-                            delete penjelasanData[k];
-                            terhapusJson++;
-                        }
+                for (const k of Object.keys(penjelasanData)) {
+                    const kNorm = k.toLowerCase().trim();
+                    const kSafe = k.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+                    
+                    if (kNorm === keyHapus || kSafe.includes(safeMapelHapus)) {
+                        delete penjelasanData[k];
+                        terhapusJson++;
                     }
-
-                    if (terhapusJson > 0) savePenjelasanData(penjelasanData);
-
-                    await reply(
-                        `✅ Berhasil menghapus ${targetFiles.length} file` +
-                        (terhapusJson > 0 ? ` + ${terhapusJson} data penjelasan` : '') +
-                        ` untuk mapel *${namaMapelHapus || 'semua'}*.`
-                    );
-                } catch (jsonErr) {
-                    console.error("Error hapus JSON penjelasan:", jsonErr);
-                    // File fisik sudah terhapus, lapor partial success
-                    await reply(`✅ Berhasil menghapus ${targetFiles.length} file, tapi gagal hapus data penjelasan.`);
                 }
+                if (terhapusJson > 0) savePenjelasanData(penjelasanData);
+
+                // 2. HAPUS FILE FISIK
+                let terhapusFile = 0;
+                if (fs.existsSync(KISI_FILES_PATH)) {
+                    const allFiles = fs.readdirSync(KISI_FILES_PATH);
+                    const targetFiles = allFiles.filter(f => f.toLowerCase().includes(safeMapelHapus));
+                    
+                    targetFiles.forEach(file => {
+                        try {
+                            fs.unlinkSync(path.join(KISI_FILES_PATH, file));
+                            terhapusFile++;
+                        } catch (e) { console.error("Gagal hapus file:", e); }
+                    });
+                }
+
+                if (terhapusJson === 0 && terhapusFile === 0) {
+                    return reply(`ℹ️ Tidak ditemukan data atau file untuk mapel *${namaMapelHapus}*.`);
+                }
+
+                await reply(
+                    `✅ *Berhasil Dihapus!*\n` +
+                    `📚 Mapel: ${namaMapelHapus}\n` +
+                    `📝 Data Penjelasan: ${terhapusJson} dihapus\n` +
+                    `📁 File Fisik: ${terhapusFile} dihapus`
+                );
 
             } catch (err) {
                 console.error("Error hapus_kisi:", err);
-                reply("❌ Gagal menghapus file.");
+                reply("❌ Gagal menghapus data kisi.");
             }
             break;
         }
