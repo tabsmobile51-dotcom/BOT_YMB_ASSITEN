@@ -1,132 +1,136 @@
 /**
- * ROUTE HANDLER: /kisi-kisi
- * Perbaikan: Fix Lightbox Error & Logika Penjelasan Materi
+ * ROUTE HANDLER: /kisi-kisi  (single file, all-in-one)
+ * Fix:
+ *  1. Bug penjelasan teks-only (tanpa PDF) tampil "belum ada"  → fixed
+ *  2. Teks penjelasan auto-format jadi poin-poin rapi di web
+ *  3. Lightbox pakai index array, tidak error
  */
 
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
 const { JADWAL_PELAJARAN, KISI_FILES_PATH } = require('./kisi_constants');
 
-const PRAKTEK_JSON_PATH = '/app/auth_info/data_praktek.json';
+const PRAKTEK_JSON_PATH    = '/app/auth_info/data_praktek.json';
 const KISI_PENJELASAN_PATH = '/app/auth_info/kisi_penjelasan.json';
-const DAY_LABELS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const DAY_LABELS           = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
 
-// Normalisasi key agar sinkron dengan penyimpanan Bot
-function normalizeKey(s) {
-    return String(s).toLowerCase().trim();
-}
-
-// Bersihkan emoji/simbol di awal nama mapel
-function stripPrefix(s) {
-    return String(s).replace(/^[^\w]+\s*/, '').trim();
-}
+/* ─────────────────────────────────────────────
+   HELPERS
+───────────────────────────────────────────── */
+function normalizeKey(s) { return String(s).toLowerCase().trim(); }
+function stripPrefix(s)  { return String(s).replace(/^[^\w]+\s*/, '').trim(); }
 
 function getStoredPraktek() {
     try {
-        if (fs.existsSync(PRAKTEK_JSON_PATH)) {
+        if (fs.existsSync(PRAKTEK_JSON_PATH))
             return JSON.parse(fs.readFileSync(PRAKTEK_JSON_PATH, 'utf-8'));
-        }
-    } catch (e) {}
-    return { 1: 'Tidak ada', 2: 'Tidak ada', 3: 'Tidak ada', 4: 'Tidak ada', 5: 'Tidak ada' };
+    } catch (_) {}
+    return { 1:'Tidak ada', 2:'Tidak ada', 3:'Tidak ada', 4:'Tidak ada', 5:'Tidak ada' };
 }
 
 function getKisiPenjelasan() {
     try {
-        if (fs.existsSync(KISI_PENJELASAN_PATH)) {
+        if (fs.existsSync(KISI_PENJELASAN_PATH))
             return JSON.parse(fs.readFileSync(KISI_PENJELASAN_PATH, 'utf-8'));
-        }
-    } catch (e) {}
+    } catch (_) {}
     return {};
 }
 
 function getKisiFiles() {
     try {
         if (!fs.existsSync(KISI_FILES_PATH)) return [];
-        return fs.readdirSync(KISI_FILES_PATH).filter(f => f.match(/\.(jpg|jpeg|png|pdf)$/i));
-    } catch (e) { return []; }
+        return fs.readdirSync(KISI_FILES_PATH).filter(f => /\.(jpg|jpeg|png|pdf)$/i.test(f));
+    } catch (_) { return []; }
 }
 
 function getFilesForMapel(mapelName, allFiles) {
-    const safe = mapelName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+    const safe = mapelName.replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
     return allFiles.filter(f => f.toLowerCase().includes(safe));
 }
 
+/**
+ * Cari penjelasan — selalu return { teks, files } atau null.
+ * Mendukung format lama (string) dan baru ({ teks, files }).
+ */
 function findPenjelasan(penjelasanData, namaParam) {
-    const key = normalizeKey(namaParam);
+    const key     = normalizeKey(namaParam);
     const entries = Object.entries(penjelasanData);
 
-    const exact = entries.find(([k]) => normalizeKey(k) === key);
-    if (exact) return exact[1];
+    const found = entries.find(([k]) => normalizeKey(k) === key)
+               || entries.find(([k]) => { const nk=normalizeKey(k); return nk.includes(key)||key.includes(nk); });
 
-    const partial = entries.find(([k]) => {
-        const nk = normalizeKey(k);
-        return nk.includes(key) || key.includes(nk);
-    });
-    if (partial) return partial[1];
+    if (!found) return null;
+    const raw = found[1];
 
-    return null;
+    // Format lama → string polos
+    if (typeof raw === 'string') return { teks: raw, files: [] };
+
+    // Format baru → { teks?, files? }
+    return { teks: raw.teks || '', files: Array.isArray(raw.files) ? raw.files : [] };
 }
 
-// --- API ENDPOINT ---
+/* ─────────────────────────────────────────────
+   API ENDPOINTS
+───────────────────────────────────────────── */
 async function handleKisiKisiApi(req, res, pathname) {
     const urlObj = new URL(req.url, 'http://localhost');
     const domain = process.env.MY_DOMAIN || 'http://localhost';
 
+    // GET /kisi-api/mapel?nama=...
     if (pathname === '/kisi-api/mapel') {
-        const nama = urlObj.searchParams.get('nama') || '';
+        const nama     = urlObj.searchParams.get('nama') || '';
         const allFiles = getKisiFiles();
-        const files = getFilesForMapel(nama, allFiles);
-
-        const result = files.map(f => ({
+        const result   = getFilesForMapel(nama, allFiles).map(f => ({
             name: f,
-            url: `${domain}/kisi_ujian/${f}`,
-            type: f.match(/\.pdf$/i) ? 'pdf' : 'image',
-            time: (() => {
-                try { return fs.statSync(path.join(KISI_FILES_PATH, f)).mtimeMs; } catch(e) { return 0; }
-            })()
-        })).sort((a, b) => b.time - a.time);
+            url:  `${domain}/kisi_ujian/${f}`,
+            type: /\.pdf$/i.test(f) ? 'pdf' : 'image',
+            time: (() => { try { return fs.statSync(path.join(KISI_FILES_PATH,f)).mtimeMs; } catch(_){return 0;} })()
+        })).sort((a,b) => b.time - a.time);
 
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type':'application/json', 'Access-Control-Allow-Origin':'*' });
         res.end(JSON.stringify(result));
         return;
     }
 
+    // GET /kisi-api/penjelasan?nama=...
     if (pathname === '/kisi-api/penjelasan') {
         const nama = urlObj.searchParams.get('nama') || '';
-        const penjelasanData = getKisiPenjelasan();
-        const data = findPenjelasan(penjelasanData, nama);
-
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify(data !== undefined ? data : null));
+        const data = findPenjelasan(getKisiPenjelasan(), nama);
+        res.writeHead(200, { 'Content-Type':'application/json', 'Access-Control-Allow-Origin':'*' });
+        res.end(JSON.stringify(data)); // null atau { teks, files }
         return;
     }
 
-    res.writeHead(404);
-    res.end('Not found');
+    res.writeHead(404); res.end('Not found');
 }
 
+/* ─────────────────────────────────────────────
+   HTML PAGE
+───────────────────────────────────────────── */
 function buildHtml(domain) {
-    const now = new Date();
-    const todayDay = now.getDay();
+    const now       = new Date();
+    const todayDay  = now.getDay();
     const hariAktif = (todayDay >= 1 && todayDay <= 5) ? todayDay : 1;
+
     const dataPraktek = getStoredPraktek();
-    const kisiFiles = getKisiFiles();
-    const totalMapel = Object.values(JADWAL_PELAJARAN).reduce((a, b) => a + b.split('\n').filter(Boolean).length, 0);
+    const kisiFiles   = getKisiFiles();
+    const totalMapel  = Object.values(JADWAL_PELAJARAN)
+        .reduce((a,b) => a + b.split('\n').filter(Boolean).length, 0);
+
     const lastUpdate = kisiFiles.length > 0
         ? new Date(Math.max(...kisiFiles.map(f => {
-            try { return fs.statSync(path.join(KISI_FILES_PATH, f)).mtimeMs; } catch(e) { return 0; }
+              try { return fs.statSync(path.join(KISI_FILES_PATH,f)).mtimeMs; } catch(_){return 0;}
           }))).toLocaleString('id-ID')
         : 'Belum ada update';
 
     const jadwalData = {};
     for (let d = 1; d <= 5; d++) {
         const mapelList = (JADWAL_PELAJARAN[d] || '').split('\n').filter(Boolean);
-        const praktek = dataPraktek[d] || 'Tidak ada';
+        const praktek   = dataPraktek[d] || 'Tidak ada';
         jadwalData[d] = {
             mapel: mapelList.map(m => {
                 const namaBersih = stripPrefix(m);
-                const filesForThis = getFilesForMapel(namaBersih, kisiFiles);
-                return { nama: m, namaBersih, fileCount: filesForThis.length };
+                return { nama: m, namaBersih, fileCount: getFilesForMapel(namaBersih, kisiFiles).length };
             }),
             praktek,
             adaPraktek: !praktek.toLowerCase().includes('tidak ada')
@@ -141,7 +145,6 @@ function buildHtml(domain) {
 <title>Pusat Kisi-Kisi Ujian</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <style>
-/* CSS dipertahankan sesuai aslinya */
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0;min-height:100vh;padding:2rem 1rem;overflow-x:hidden}
@@ -155,9 +158,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 .stat-card{flex:1;min-width:130px;background:#111827;border:1px solid #1e2d45;border-radius:14px;padding:.875rem 1.1rem}
 .stat-label{font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.35rem}
 .stat-value{font-size:1.35rem;font-weight:800}
-.stat-value.purple{color:#a5b4fc}
-.stat-value.green{color:#4ade80}
-.stat-value.amber{color:#fbbf24}
+.stat-value.purple{color:#a5b4fc}.stat-value.green{color:#4ade80}.stat-value.amber{color:#fbbf24}
 .live-pill{display:inline-flex;align-items:center;gap:7px;background:#111827;border:1px solid #1e2d45;border-radius:999px;padding:5px 14px;font-size:11px;color:#475569;margin-bottom:1.75rem}
 .live-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;flex-shrink:0;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -175,7 +176,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 .day-dot.on{background:#6366f1;box-shadow:0 0 10px #6366f166}
 .day-title h2{font-size:.9rem;font-weight:800;color:#f1f5f9;letter-spacing:.06em}
 .today-badge{font-size:10px;font-weight:700;background:rgba(99,102,241,.18);color:#a5b4fc;padding:3px 10px;border-radius:999px;border:1px solid rgba(99,102,241,.28)}
-.praktek-badge{font-size:10px;font-weight:700;background:rgba(251,191,36,.1);color:#fbbf24;padding:3px 10px;border-radius:999px;border:1px solid rgba(251,191,36,.2)}
 .mapel-list{display:flex;flex-direction:column;gap:8px}
 .mapel-item{display:flex;align-items:center;justify-content:space-between;background:#080b14;border:1px solid #1a2535;border-radius:11px;padding:.65rem 1rem;gap:.75rem;cursor:pointer;transition:all .2s;user-select:none}
 .mapel-item:hover{border-color:#6366f1;background:#0f1322}
@@ -189,9 +189,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 .file-count.kosong{background:rgba(100,116,139,.08);color:#475569;border:1px solid rgba(100,116,139,.15)}
 .arrow-icon{color:#475569;font-size:12px;transition:all .2s}
 .mapel-item:hover .arrow-icon{color:#6366f1;transform:translateX(2px)}
-.praktek-box{margin-top:.9rem;background:rgba(251,191,36,.04);border:1px solid rgba(251,191,36,.13);border-radius:11px;padding:.7rem 1rem;display:flex;gap:.7rem;align-items:flex-start}
-.praktek-label{font-size:9px;font-weight:800;color:#fbbf24;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;margin-top:2px}
-.praktek-detail{font-size:.85rem;color:#e2e8f0}
 
 /* MODAL */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
@@ -204,8 +201,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 @media(min-width:600px){.modal-sheet{border-radius:20px;max-height:88vh}}
 .modal-handle{width:36px;height:4px;background:#1e2d45;border-radius:2px;margin:0 auto 1.25rem}
 .modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1.25rem}
-.modal-mapel-name{font-size:1.25rem;font-weight:800;color:#f1f5f9;margin-bottom:.2rem}
-.modal-mapel-sub{font-size:.8rem;color:#64748b}
+.modal-mapel-name{font-size:1.25rem;font-weight:800;color:#f1f5f9}
 .modal-close{width:32px;height:32px;border-radius:50%;border:1px solid #1e2d45;background:#080b14;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;transition:all .2s}
 .modal-close:hover{border-color:#6366f1;color:#a5b4fc}
 .modal-tabs{display:flex;gap:6px;margin-bottom:1.25rem;border-bottom:1px solid #1e2d45;padding-bottom:.75rem}
@@ -217,30 +213,35 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 
 /* PENJELASAN */
 .pjl-box{background:#080b14;border:1px solid #1a2535;border-radius:13px;padding:1.1rem 1.2rem;margin-bottom:.75rem}
-.pjl-title{font-size:.75rem;font-weight:800;color:#a5b4fc;text-transform:uppercase;letter-spacing:.07em;margin-bottom:.6rem;display:flex;align-items:center;gap:.4rem}
+.pjl-title{font-size:.75rem;font-weight:800;color:#a5b4fc;text-transform:uppercase;letter-spacing:.07em;margin-bottom:.75rem;display:flex;align-items:center;gap:.4rem}
 .pjl-title::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:#6366f1}
-.pjl-text{font-size:.9rem;color:#cbd5e1;line-height:1.7;white-space:pre-wrap}
-.pjl-updated{font-size:.72rem;color:#334155;margin-top:.6rem}
-.pjl-tip{background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.18);border-radius:10px;padding:.65rem .9rem;margin-top:.75rem;font-size:.82rem;color:#a5b4fc;line-height:1.5}
+
+/* Poin-poin otomatis */
+.pjl-list{margin:.1rem 0 0 .25rem;display:flex;flex-direction:column;gap:0}
+.pjl-list li{display:flex;align-items:flex-start;gap:.6rem;padding:.45rem .5rem;border-radius:7px;transition:background .15s;font-size:.875rem;color:#cbd5e1;line-height:1.6;list-style:none}
+.pjl-list li:hover{background:rgba(99,102,241,.06)}
+.pjl-num{flex-shrink:0;min-width:22px;height:22px;border-radius:6px;background:rgba(99,102,241,.18);color:#a5b4fc;font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px}
+.pjl-bul{flex-shrink:0;width:6px;height:6px;border-radius:50%;background:#6366f1;margin-top:.55rem}
+.pjl-list li strong{color:#a5b4fc;font-weight:700}
+.pjl-note{font-size:.82rem;color:#64748b;line-height:1.65;padding:.5rem .25rem}
 .pjl-empty{text-align:center;padding:2rem 1rem;color:#475569;font-size:.875rem}
-.pjl-empty-icon{font-size:2rem;margin-bottom:.5rem}
 
 /* FILE MATERI */
 .modal-loading{text-align:center;padding:3rem 1rem;color:#475569;font-size:.9rem}
 .modal-loading .spin{display:inline-block;width:28px;height:28px;border:2px solid #1e2d45;border-top-color:#6366f1;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:.75rem}
 @keyframes spin{to{transform:rotate(360deg)}}
 .file-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
-.file-card{background:#080b14;border:1px solid #1a2535;border-radius:13px;overflow:hidden;transition:border-color .2s,transform .2s;display:block;cursor:pointer}
+.file-card{background:#080b14;border:1px solid #1a2535;border-radius:13px;overflow:hidden;transition:border-color .2s,transform .2s;cursor:pointer}
 .file-card:hover{border-color:#6366f1;transform:translateY(-2px)}
-.file-preview-wrap{width:100%;height:150px;background:#0d1220;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
-.file-preview-img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .3s}
+.file-preview-wrap{width:100%;height:150px;background:#0d1220;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.file-preview-img{width:100%;height:100%;object-fit:cover}
 .file-preview-pdf{width:100%;height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0d1220;gap:.5rem}
 .pdf-icon{font-size:2.2rem}
 .pdf-label{font-size:11px;font-weight:700;color:#f87171;letter-spacing:.05em}
 .file-info{padding:.6rem .75rem .3rem}
 .file-name{font-size:.72rem;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.file-time{font-size:.68rem;color:#334155;margin-top:.18rem}
-.open-btn{display:flex;align-items:center;justify-content:center;gap:.4rem;margin:.5rem .6rem .65rem;padding:.45rem;border-radius:8px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.22);color:#a5b4fc;font-size:.75rem;font-weight:700;text-decoration:none;transition:all .2s}
+.open-btn{display:flex;align-items:center;justify-content:center;gap:.4rem;margin:.5rem .6rem .65rem;padding:.45rem;border-radius:8px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.22);color:#a5b4fc;font-size:.75rem;font-weight:700}
+.modal-empty{text-align:center;padding:2.5rem 1rem;color:#475569;font-size:.875rem}
 
 /* LIGHTBOX */
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s;flex-direction:column;padding:1rem;backdrop-filter:blur(8px)}
@@ -248,7 +249,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 .lightbox img{max-width:100%;max-height:calc(100vh - 120px);object-fit:contain;border-radius:12px}
 .lightbox-bar{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap;justify-content:center}
 .lightbox-btn{display:flex;align-items:center;gap:.4rem;padding:8px 18px;border-radius:999px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:#e2e8f0;font-size:.8rem;font-weight:700;cursor:pointer;text-decoration:none;font-family:inherit;transition:all .15s}
-.lightbox-close{position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:#e2e8f0;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.lightbox-close{position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:#e2e8f0;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .footer{text-align:center;margin-top:2.5rem;color:#1e2d45;font-size:.75rem;padding-bottom:1rem}
 </style>
 </head>
@@ -259,40 +260,23 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
         <h1>Kisi-Kisi <span>Ujian</span></h1>
         <p>Klik pelajaran untuk lihat file materi dan penjelasan kisi-kisi</p>
     </div>
-
     <div class="stats-bar">
-        <div class="stat-card">
-            <div class="stat-label">Total Pelajaran</div>
-            <div class="stat-value purple">${totalMapel}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">File Materi</div>
-            <div class="stat-value green">${kisiFiles.length}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Hari Ini</div>
-            <div class="stat-value amber">${DAY_LABELS[now.getDay()] || '-'}</div>
-        </div>
+        <div class="stat-card"><div class="stat-label">Total Pelajaran</div><div class="stat-value purple">${totalMapel}</div></div>
+        <div class="stat-card"><div class="stat-label">File Materi</div><div class="stat-value green">${kisiFiles.length}</div></div>
+        <div class="stat-card"><div class="stat-label">Hari Ini</div><div class="stat-value amber">${DAY_LABELS[now.getDay()] || '-'}</div></div>
     </div>
-
-    <div class="live-pill">
-        <span class="live-dot"></span>
-        Update terakhir: ${lastUpdate}
-    </div>
-
+    <div class="live-pill"><span class="live-dot"></span>Update terakhir: ${lastUpdate}</div>
     <div class="day-tabs" id="tabs"></div>
     <div id="cards-container"></div>
     <div class="footer">Dikelola bot WhatsApp &mdash; <code>!update_kisi-kisi [hari] [mapel] | [penjelasan]</code></div>
 </div>
 
+<!-- MODAL -->
 <div class="modal-overlay" id="modal" onclick="closeModalOnBg(event)">
-    <div class="modal-sheet" id="modal-sheet">
+    <div class="modal-sheet">
         <div class="modal-handle"></div>
         <div class="modal-header">
-            <div>
-                <div class="modal-mapel-name" id="modal-mapel-name">-</div>
-                <div class="modal-mapel-sub" id="modal-mapel-sub">Memuat...</div>
-            </div>
+            <div class="modal-mapel-name" id="modal-mapel-name">-</div>
             <button class="modal-close" onclick="closeModal()">✕</button>
         </div>
         <div class="modal-tabs">
@@ -300,7 +284,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
             <button class="modal-tab" onclick="switchTab('info',this)">📋 Kisi-Kisi</button>
         </div>
         <div class="modal-panel show" id="panel-files">
-            <div class="modal-loading"><div class="spin"></div><br>Memuat file...</div>
+            <div class="modal-loading"><div class="spin"></div><br>Memuat...</div>
         </div>
         <div class="modal-panel" id="panel-info">
             <div class="pjl-empty">Pilih mata pelajaran untuk lihat kisi-kisi.</div>
@@ -308,10 +292,10 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
     </div>
 </div>
 
+<!-- LIGHTBOX -->
 <div class="lightbox" id="lightbox" onclick="closeLightboxOnBg(event)">
     <button class="lightbox-close" onclick="closeLightbox()">✕</button>
     <img id="lightbox-img" src="" alt="Preview"/>
-    <div class="lightbox-caption" id="lightbox-caption"></div>
     <div class="lightbox-bar">
         <a id="lightbox-dl" href="#" target="_blank" class="lightbox-btn">↗ Buka di tab baru</a>
         <button class="lightbox-btn" onclick="closeLightbox()">✕ Tutup</button>
@@ -319,179 +303,210 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#080b14;color:#e2e8f0
 </div>
 
 <script>
-const JADWAL = ${JSON.stringify(jadwalData)};
+const JADWAL    = ${JSON.stringify(jadwalData)};
 const DAY_NAMES = ['','SENIN','SELASA','RABU','KAMIS','JUMAT'];
-let activeDay = ${hariAktif};
+let activeDay   = ${hariAktif};
+let _filesMateri = [], _filesPjl = [];
 
-function escHtml(s) {
+function esc(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+/* ══════════════════════════════════════════════════════
+   AUTO-FORMAT PENJELASAN → poin-poin rapi
+   Aturan:
+   - "1. xxx 2. yyy" digabung tanpa enter → pisah jadi poin bernomor
+   - Baris diawali angka/huruf + titik    → poin bernomor  (badge ungu)
+   - Baris diawali - atau •               → poin bullet    (dot ungu)
+   - Teks biasa (satu baris)              → poin bullet    (dot ungu)
+   - *bold* / **bold**                    → tebal
+   ══════════════════════════════════════════════════════ */
+function renderInline(t) {
+    return esc(t)
+        .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
+        .replace(/\\*(.+?)\\*/g,       '<strong>$1</strong>');
+}
+function isNumbered(l) { return /^(\\d+|[a-zA-Z])[.)]\s/.test(l); }
+function isBullet(l)   { return /^[-•]\s/.test(l); }
+function isListItem(l) { return isNumbered(l) || isBullet(l); }
+function stripPfx(l)   { return l.replace(/^(\\d+|[a-zA-Z])[.)]\s*/,'').replace(/^[-•]\s*/,''); }
+
+function splitInlineNumbered(line) {
+    // "1. aaa 2. bbb 3. ccc" → ["1. aaa","2. bbb","3. ccc"]
+    return line.split(/(?<=\\S)\\s+(?=(?:\\d+|[a-zA-Z])[.)]\s)/).map(p=>p.trim()).filter(Boolean);
+}
+
+function formatPenjelasan(raw) {
+    if (!raw || !raw.trim()) return '';
+
+    const rawLines = raw.replace(/\\r\\n/g,'\\n').replace(/\\r/g,'\\n').split('\\n').map(l=>l.trim());
+
+    // Expand baris yang punya nomor list tergabung tanpa enter
+    const lines = [];
+    for (const line of rawLines) {
+        if (!line) { lines.push(''); continue; }
+        const hasInline = /\\s+(?:\\d+|[a-zA-Z])[.)]\s/.test(line) && !isListItem(line);
+        lines.push(...(hasInline ? splitInlineNumbered(line) : [line]));
+    }
+
+    // Bangun HTML poin-poin
+    const items = [];   // { type:'num'|'bul', num?:string, text:string }
+    let counter = 1;
+
+    for (const line of lines) {
+        if (!line) continue; // skip baris kosong, semua jadi poin
+
+        if (isNumbered(line)) {
+            // Ambil nomor aslinya kalau ada (1, 2, a, b…)
+            const m = line.match(/^(\\d+|[a-zA-Z])[.)]/);
+            items.push({ type:'num', num: m ? m[1] : String(counter++), text: stripPfx(line) });
+        } else if (isBullet(line)) {
+            items.push({ type:'bul', text: stripPfx(line) });
+        } else {
+            // Teks biasa → jadikan bullet
+            items.push({ type:'bul', text: line });
+        }
+    }
+
+    if (!items.length) return '';
+
+    const liHtml = items.map(it => {
+        const icon = it.type === 'num'
+            ? \`<span class="pjl-num">\${esc(it.num)}</span>\`
+            : \`<span class="pjl-bul"></span>\`;
+        return \`<li>\${icon}<span>\${renderInline(it.text)}</span></li>\`;
+    }).join('');
+
+    return \`<ul class="pjl-list">\${liHtml}</ul>\`;
+}
+
+/* ══ Render kartu jadwal ══ */
 function renderCards(days) {
     return days.map(d => {
-        const data = JADWAL[d];
-        if (!data) return '';
+        const data = JADWAL[d]; if (!data) return '';
         const isAct = d === ${hariAktif};
-        const mapelHtml = data.mapel.map(m => {
-            const hasFile = m.fileCount > 0;
-            return \`<div class="mapel-item" onclick="openMapel('\${escHtml(m.nama)}', '\${escHtml(m.namaBersih)}', \${d})">
+        const items = data.mapel.map(m => \`
+            <div class="mapel-item" onclick="openMapel('\${esc(m.nama)}','\${esc(m.namaBersih)}')">
                 <div class="mapel-left">
-                    <div class="mapel-icon">\${m.nama.match(/^(\\S+)/)?.[1] || '📖'}</div>
-                    <span class="mapel-name">\${escHtml(m.namaBersih)}</span>
+                    <div class="mapel-icon">\${(m.nama.match(/^(\\S+)/)||['📖'])[0]}</div>
+                    <span class="mapel-name">\${esc(m.namaBersih)}</span>
                 </div>
                 <div class="mapel-right">
-                    <span class="file-count \${hasFile?'ada':'kosong'}">\${hasFile ? m.fileCount+' file' : 'Belum ada'}</span>
+                    <span class="file-count \${m.fileCount>0?'ada':'kosong'}">\${m.fileCount>0?m.fileCount+' file':'Belum ada'}</span>
                     <span class="arrow-icon">›</span>
                 </div>
-            </div>\`;
-        }).join('');
+            </div>\`).join('');
         return \`<div class="day-card \${isAct?'highlight':''}">
-            <div class="day-header">
-                <div class="day-title">
-                    <span class="day-dot \${isAct?'on':''}"></span>
-                    <h2>\${DAY_NAMES[d]}</h2>
-                    \${isAct?'<span class="today-badge">Hari Ini</span>':''}
-                </div>
-            </div>
-            <div class="mapel-list">\${mapelHtml}</div>
+            <div class="day-header"><div class="day-title">
+                <span class="day-dot \${isAct?'on':''}"></span>
+                <h2>\${DAY_NAMES[d]}</h2>
+                \${isAct?'<span class="today-badge">Hari Ini</span>':''}
+            </div></div>
+            <div class="mapel-list">\${items}</div>
         </div>\`;
     }).join('');
 }
 
 function buildTabs() {
-    const el = document.getElementById('tabs');
-    el.innerHTML = [1,2,3,4,5].map(d =>
-        \`<button class="day-tab \${d===activeDay?'active':''}" onclick="switchDay(\${d})">\${DAY_NAMES[d]}</button>\`
-    ).join('') + \`<button class="day-tab \${activeDay===0?'active':''}" onclick="switchDay(0)">SEMUA</button>\`;
+    document.getElementById('tabs').innerHTML =
+        [1,2,3,4,5].map(d=>\`<button class="day-tab \${d===activeDay?'active':''}" onclick="switchDay(\${d})">\${DAY_NAMES[d]}</button>\`).join('') +
+        \`<button class="day-tab \${activeDay===0?'active':''}" onclick="switchDay(0)">SEMUA</button>\`;
 }
-
 function switchDay(d) {
-    activeDay = d;
-    buildTabs();
-    document.getElementById('cards-container').innerHTML = renderCards(d===0 ? [1,2,3,4,5] : [d]);
+    activeDay=d; buildTabs();
+    document.getElementById('cards-container').innerHTML = renderCards(d===0?[1,2,3,4,5]:[d]);
 }
-
-function switchTab(tab, btn) {
-    document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.modal-panel').forEach(p => p.classList.remove('show'));
+function switchTab(tab,btn) {
+    document.querySelectorAll('.modal-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.modal-panel').forEach(p=>p.classList.remove('show'));
     btn.classList.add('active');
-    document.getElementById('panel-' + tab).classList.add('show');
+    document.getElementById('panel-'+tab).classList.add('show');
 }
 
-// BUKA MODAL - FIX: Kirim namaBersih ke API
-async function openMapel(namaLengkap, namaBersih, hari) {
-    const modal = document.getElementById('modal');
-    const namaEl = document.getElementById('modal-mapel-name');
-    const panelFiles = document.getElementById('panel-files');
-    const panelInfo = document.getElementById('panel-info');
-
-    namaEl.textContent = namaLengkap;
-    panelFiles.innerHTML = '<div class="modal-loading"><div class="spin"></div><br>Mengambil file...</div>';
-    panelInfo.innerHTML = '<div class="modal-loading"><div class="spin"></div><br>Mengambil penjelasan...</div>';
-
-    modal.classList.add('open');
+/* ══ Buka modal ══ */
+async function openMapel(namaLengkap, namaBersih) {
+    const pF = document.getElementById('panel-files');
+    const pI = document.getElementById('panel-info');
+    document.getElementById('modal-mapel-name').textContent = namaLengkap;
+    pF.innerHTML = '<div class="modal-loading"><div class="spin"></div><br>Mengambil file...</div>';
+    pI.innerHTML = '<div class="modal-loading"><div class="spin"></div><br>Mengambil penjelasan...</div>';
+    document.getElementById('modal').classList.add('open');
     document.body.style.overflow = 'hidden';
+    document.querySelectorAll('.modal-tab')[0].click();
 
-    // Reset ke tab pertama
-    switchTab('files', document.querySelector('.modal-tab'));
-
-    const [filesRes, pjlRes] = await Promise.allSettled([
-        fetch('/kisi-api/mapel?nama=' + encodeURIComponent(namaBersih)).then(r => r.json()),
-        fetch('/kisi-api/penjelasan?nama=' + encodeURIComponent(namaBersih)).then(r => r.json())
+    const [fRes, pRes] = await Promise.allSettled([
+        fetch('/kisi-api/mapel?nama='      + encodeURIComponent(namaBersih)).then(r=>r.json()),
+        fetch('/kisi-api/penjelasan?nama=' + encodeURIComponent(namaBersih)).then(r=>r.json())
     ]);
 
-    // RENDER FILE MATERI
-    if (filesRes.status === 'fulfilled' && filesRes.value.length > 0) {
-        window._kisiFiles = filesRes.value;
-        const cards = filesRes.value.map((f, idx) => {
-            const sn = escHtml(f.name);
-            if (f.type === 'image') {
-                return \`<div class="file-card" onclick="openLightboxIdx(\${idx})">
-                    <div class="file-preview-wrap"><img class="file-preview-img" src="\${escHtml(f.url)}"/></div>
-                    <div class="file-info"><div class="file-name">\${sn}</div></div>
-                    <div class="open-btn">🔍 Lihat Gambar</div>
-                </div>\`;
-            }
-            return \`<div class="file-card" onclick="openPdfIdx(\${idx})">
-                <div class="file-preview-pdf"><div class="pdf-icon">📄</div></div>
-                <div class="file-info"><div class="file-name">\${sn}</div></div>
-                <div class="open-btn">↗ Buka PDF</div>
-            </div>\`;
-        }).join('');
-        panelFiles.innerHTML = \`<div class="file-grid">\${cards}</div>\`;
+    // ── File Materi ──
+    _filesMateri = fRes.status==='fulfilled' ? fRes.value : [];
+    if (_filesMateri.length > 0) {
+        pF.innerHTML = '<div class="file-grid">' +
+            _filesMateri.map((f,i) => f.type==='image'
+                ?\`<div class="file-card" onclick="_openImg(_filesMateri,\${i})">
+                    <div class="file-preview-wrap"><img class="file-preview-img" src="\${esc(f.url)}"/></div>
+                    <div class="file-info"><div class="file-name">\${esc(f.name)}</div></div>
+                    <div class="open-btn">🔍 Lihat Gambar</div></div>\`
+                :\`<div class="file-card" onclick="window.open('\${esc(f.url)}','_blank')">
+                    <div class="file-preview-pdf"><div class="pdf-icon">📄</div><div class="pdf-label">PDF</div></div>
+                    <div class="file-info"><div class="file-name">\${esc(f.name)}</div></div>
+                    <div class="open-btn">↗ Buka PDF</div></div>\`
+            ).join('') + '</div>';
     } else {
-        panelFiles.innerHTML = '<div class="modal-empty">Belum ada file materi.</div>';
+        pF.innerHTML = '<div class="modal-empty">Belum ada file materi untuk pelajaran ini.</div>';
     }
 
-    // RENDER PENJELASAN - FIX: Logika data.teks vs data.files
-    const pjl = pjlRes.status === 'fulfilled' ? pjlRes.value : null;
-    renderPenjelasan(pjl, namaBersih, panelInfo);
-}
-
-function renderPenjelasan(data, mapelName, container) {
-    let html = '';
-    const hasTeks = data && data.teks;
-    const hasFiles = data && data.files && data.files.length > 0;
+    // ── Penjelasan ──
+    // API return { teks, files } atau null
+    const pjl  = pRes.status==='fulfilled' ? pRes.value : null;
+    _filesPjl  = (pjl && Array.isArray(pjl.files)) ? pjl.files : [];
+    const hasTeks  = pjl && pjl.teks && pjl.teks.trim();
+    const hasFiles = _filesPjl.length > 0;
 
     if (hasTeks || hasFiles) {
+        let html = '<div class="pjl-box"><div class="pjl-title">Penjelasan Kisi-Kisi</div>';
+
         if (hasTeks) {
-            html += \`<div class="pjl-box">
-                <div class="pjl-title">Penjelasan Kisi-Kisi</div>
-                <div class="pjl-text">\${escHtml(data.teks)}</div>
-            </div>\`;
+            html += formatPenjelasan(pjl.teks);   // ← FORMAT OTOMATIS jadi poin-poin
         } else {
-            html += \`<div class="pjl-box"><div class="pjl-text" style="color:#64748b">Admin belum memberikan teks penjelasan, silakan cek file terlampir di bawah.</div></div>\`;
+            html += '<div class="pjl-note">Admin belum menambahkan teks — cek file terlampir di bawah.</div>';
         }
+        html += '</div>';
 
         if (hasFiles) {
-            window._kisiPjlFiles = data.files;
-            html += \`<div class="pjl-box"><div class="pjl-title">File Terlampir</div>\`;
-            data.files.forEach((f, idx) => {
-                const action = f.type === 'pdf' ? \`openPdfPjlIdx(\${idx})\` : \`openLightboxPjlIdx(\${idx})\`;
-                html += \`<div onclick="\${action}" style="display:flex;align-items:center;gap:10px;background:#080b14;border:1px solid #1e2d45;padding:10px;border-radius:8px;margin-top:5px;cursor:pointer">
-                    <span>\${f.type === 'pdf' ? '📄' : '🖼️'}</span>
-                    <span style="flex:1;font-size:13px">\${escHtml(f.name)}</span>
-                    <span style="color:#6366f1;font-size:12px;font-weight:bold">BUKA ↗</span>
-                </div>\`;
+            html += '<div class="pjl-box"><div class="pjl-title">File Terlampir</div>';
+            _filesPjl.forEach((f,i) => {
+                const click = f.type==='pdf'
+                    ? \`window.open('\${esc(f.url)}','_blank')\`
+                    : \`_openImg(_filesPjl,\${i})\`;
+                html += \`<div onclick="\${click}" style="display:flex;align-items:center;gap:10px;background:#080b14;border:1px solid #1e2d45;padding:10px;border-radius:8px;margin-top:5px;cursor:pointer">
+                    <span>\${f.type==='pdf'?'📄':'🖼️'}</span>
+                    <span style="flex:1;font-size:13px">\${esc(f.name)}</span>
+                    <span style="color:#6366f1;font-size:12px;font-weight:bold">BUKA ↗</span></div>\`;
             });
-            html += \`</div>\`;
+            html += '</div>';
         }
+        pI.innerHTML = html;
     } else {
-        html = \`<div class="pjl-empty">Admin belum menambahkan penjelasan untuk <strong>\${escHtml(mapelName)}</strong>.</div>\`;
+        pI.innerHTML = \`<div class="pjl-empty">
+            <div style="font-size:2rem;margin-bottom:.5rem">📭</div>
+            Admin belum menambahkan penjelasan untuk <strong>\${esc(namaBersih)}</strong>.
+        </div>\`;
     }
-    container.innerHTML = html;
 }
 
-// Fix Indexing for Lightbox & PDF
-function openLightboxIdx(idx) { 
-    const f = window._kisiFiles[idx]; 
-    if(f) {
-        const lb = document.getElementById('lightbox');
-        const img = document.getElementById('lightbox-img');
-        document.getElementById('lightbox-dl').href = f.url;
-        document.getElementById('lightbox-caption').textContent = f.name;
-        img.src = f.url;
-        lb.classList.add('open');
-    }
+/* ══ Lightbox ══ */
+function _openImg(arr,idx) {
+    const f = arr[idx]; if (!f) return;
+    document.getElementById('lightbox-img').src = f.url;
+    document.getElementById('lightbox-dl').href = f.url;
+    document.getElementById('lightbox').classList.add('open');
 }
-function openLightboxPjlIdx(idx) { 
-    const f = window._kisiPjlFiles[idx]; 
-    if(f) {
-        const lb = document.getElementById('lightbox');
-        const img = document.getElementById('lightbox-img');
-        document.getElementById('lightbox-dl').href = f.url;
-        document.getElementById('lightbox-caption').textContent = f.name;
-        img.src = f.url;
-        lb.classList.add('open');
-    }
-}
-function openPdfIdx(idx) { const f = window._kisiFiles[idx]; if(f) window.open(f.url, '_blank'); }
-function openPdfPjlIdx(idx) { const f = window._kisiPjlFiles[idx]; if(f) window.open(f.url, '_blank'); }
-
-function closeLightbox() { document.getElementById('lightbox').classList.remove('open'); }
-function closeLightboxOnBg(e) { if(e.target.id === 'lightbox') closeLightbox(); }
-function closeModal() { document.getElementById('modal').classList.remove('open'); document.body.style.overflow = ''; }
-function closeModalOnBg(e) { if(e.target.id === 'modal') closeModal(); }
+function closeLightbox()      { document.getElementById('lightbox').classList.remove('open'); }
+function closeLightboxOnBg(e) { if(e.target.id==='lightbox') closeLightbox(); }
+function closeModal()         { document.getElementById('modal').classList.remove('open'); document.body.style.overflow=''; }
+function closeModalOnBg(e)    { if(e.target.id==='modal') closeModal(); }
 
 buildTabs();
 switchDay(activeDay);
@@ -500,13 +515,16 @@ switchDay(activeDay);
 </html>`;
 }
 
+/* ─────────────────────────────────────────────
+   EXPORTS
+───────────────────────────────────────────── */
 async function handleKisiKisiWeb(req, res) {
     try {
-        const domain = process.env.MY_DOMAIN || 'http://localhost';
-        const html = buildHtml(domain);
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        const html = buildHtml(process.env.MY_DOMAIN || 'http://localhost');
+        res.writeHead(200, { 'Content-Type':'text/html; charset=utf-8' });
         res.end(html);
     } catch (err) {
+        console.error('[kisi] Error:', err);
         res.writeHead(500); res.end('Error');
     }
 }
