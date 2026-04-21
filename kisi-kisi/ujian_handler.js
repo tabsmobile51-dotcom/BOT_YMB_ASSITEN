@@ -220,7 +220,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                     `➝ Update jadwal praktek (Bebas/Custom)\n\n` +
                     `🗑️ *!hapus_praktek [hari]*\n` +
                     `➝ Hapus jadwal praktek hari tertentu\n\n` +
-                    `🗑️ *!hapus_kisi [hari]*\n` +
+                    `🗑️ *!hapus_kisi-kisi [hari]*\n` +
                     `➝ Hapus semua mapel + info pengumuman hari itu\n`;
             }
 
@@ -647,7 +647,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
         //    Hapus semua mapel + info pengumuman
         //    untuk hari yang dipilih sekaligus
         // ══════════════════════════════════════
-        case '!hapus_kisi': {
+        case '!hapus_kisi-kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
 
             const hariHapus = bodyParts[1]?.toLowerCase().trim();
