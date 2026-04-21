@@ -110,6 +110,7 @@ let sock;
 let logs = [];
 let stats = { pesanMasuk: 0, totalLog: 0 };
 let schedulerInitialized = false;
+let adminNotified = false;
 
 // ─────────────────────────────────────────────────────────────
 // FIX #1: SAFE SEND MESSAGE WRAPPER
@@ -259,6 +260,7 @@ async function start() {
                         fs.unlinkSync(path.join(VOLUME_PATH, 'creds.json'));
                     }
                     schedulerInitialized = false;
+                    adminNotified = false;
                 }
                 else {
                     const delay = statusCode === 429 ? 30000 : 5000;
@@ -271,13 +273,15 @@ async function start() {
                 addLog("🟢 Bot Berhasil Terhubung ke WhatsApp!");
                 
                 startKeepAlive();
-                const adminJid = "6289531549103@s.whatsapp.net"; // ← deklarasi di luar if
-                
+
+                const adminJid = "6289531549103@s.whatsapp.net";
+
+                // Notifikasi Admin HANYA saat pertama kali terhubung / setelah logout
                 if (!adminNotified) {
                     await sock.sendMessage(adminJid, { text: "✅ *SYTEAM-BOT Aktif!*\nSesi berhasil dimuat dan sistem siap digunakan." });
                     adminNotified = true;
                 }
-                    
+
                 if (!schedulerInitialized) {
                     initQuizScheduler(sock, botConfig, () => isConnected);
                     initJadwalBesokScheduler(sock, botConfig, safeSend);
