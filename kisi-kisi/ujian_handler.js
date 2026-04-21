@@ -53,10 +53,8 @@ function savePenjelasanData(data) {
 async function downloadMedia(msg) {
     try {
         const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-
         const fromQuoted = !!(quotedMsg?.imageMessage || quotedMsg?.documentMessage);
         const targetMsg  = fromQuoted ? { message: quotedMsg, key: msg.key } : msg;
-
         const buffer = await downloadMediaMessage(targetMsg, 'buffer', {});
         if (!buffer || buffer.length === 0) return null;
         return buffer;
@@ -75,6 +73,97 @@ function detectMedia(msg) {
     const isDoc     = !!(msg.message?.documentMessage || quotedMsg?.documentMessage);
     return { isImage, isDoc, hasMedia: isImage || isDoc };
 }
+
+// ─────────────────────────────────────────
+// HELPER: Nama hari Indonesia → index (0=Minggu)
+// ─────────────────────────────────────────
+function hariToIndex(hari) {
+    const map = {
+        minggu: 0, senin: 1, selasa: 2, rabu: 3,
+        kamis: 4, jumat: 5, sabtu: 6
+    };
+    return map[hari?.toLowerCase()] ?? -1;
+}
+
+// ─────────────────────────────────────────
+// HELPER: Dapatkan nama hari sekarang (Indonesia)
+// ─────────────────────────────────────────
+function getNamaHariIni() {
+    const hariList = ['minggu','senin','selasa','rabu','kamis','jumat','sabtu'];
+    return hariList[new Date().getDay()];
+}
+
+// ─────────────────────────────────────────
+// HELPER: Render satu entri mapel ke teks WA
+// Penjelasan tampil langsung, file jadi link web
+// ─────────────────────────────────────────
+function renderEntriMapel(namaMapel, data, MY_DOMAIN) {
+    let baris = `📚 *${namaMapel.toUpperCase()}*`;
+
+    // Tampilkan teks penjelasan langsung di chat
+    if (data.teks && data.teks.trim()) {
+        baris += `\n   📝 ${data.teks.trim()}`;
+    }
+
+    // Tampilkan file sebagai link ke web
+    if (Array.isArray(data.files) && data.files.length > 0) {
+        data.files.forEach((f, i) => {
+            const icon = f.type === 'pdf' ? '📄' : '🖼️';
+            const label = data.files.length > 1 ? ` (${i + 1})` : '';
+            baris += `\n   ${icon} File${label}: ${f.url}`;
+        });
+    }
+
+    return baris;
+}
+
+// ─────────────────────────────────────────
+// HELPER: Render rekap satu hari dari JSON
+// Returns: string teks atau null jika kosong
+// ─────────────────────────────────────────
+function renderRekapHari(hari, penjelasanData, MY_DOMAIN) {
+    const entries = [];
+
+    for (const [key, val] of Object.entries(penjelasanData)) {
+        // Skip entri info_ (pengumuman)
+        if (key.startsWith('info_')) continue;
+
+        const hariData = val.hari?.toLowerCase().trim();
+        if (hariData !== hari) continue;
+
+        // Hanya masukkan jika ada konten (teks atau file)
+        const punyaTeks  = val.teks && val.teks.trim().length > 0;
+        const punyaFile  = Array.isArray(val.files) && val.files.length > 0;
+        if (!punyaTeks && !punyaFile) continue;
+
+        entries.push(renderEntriMapel(key, val, MY_DOMAIN));
+    }
+
+    return entries.length > 0 ? entries.join('\n\n') : null;
+}
+
+// ─────────────────────────────────────────
+// HELPER: Render info pengumuman hari tertentu
+// ─────────────────────────────────────────
+function renderInfoHari(hari, penjelasanData, MY_DOMAIN) {
+    const infoKey  = `info_${hari}`;
+    const infoData = penjelasanData[infoKey];
+    if (!infoData) return null;
+
+    let baris = '';
+    if (infoData.teks && infoData.teks.trim()) {
+        baris += `📢 *INFO:* ${infoData.teks.trim()}`;
+    }
+    if (Array.isArray(infoData.files) && infoData.files.length > 0) {
+        infoData.files.forEach(f => {
+            const icon = f.type === 'pdf' ? '📄' : '🖼️';
+            baris += `\n   ${icon} ${f.url}`;
+        });
+    }
+
+    return baris.trim() || null;
+}
+
 
 // ─────────────────────────────────────────
 // MAIN HANDLER
@@ -146,7 +235,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             let mediaSection  = "";
             let savedFileName = null;
 
-            // Proses file jika ada
             if (hasMedia) {
                 const buffer = await downloadMedia(msg);
                 if (buffer) {
@@ -169,15 +257,12 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                 return reply("⚠️ Masukkan pesan info atau lampirkan file!");
             }
 
-            // Simpan ke JSON
             try {
                 const penjelasanData = getPenjelasanData();
                 const key = `info_${hariInput}`;
                 if (!penjelasanData[key]) penjelasanData[key] = {};
-
                 if (teksInfo) penjelasanData[key].teks = teksInfo;
                 penjelasanData[key].updatedAt = new Date().toISOString();
-
                 if (savedFileName) {
                     if (!penjelasanData[key].files) penjelasanData[key].files = [];
                     penjelasanData[key].files.push({
@@ -187,13 +272,11 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                         addedAt: new Date().toISOString()
                     });
                 }
-
                 savePenjelasanData(penjelasanData);
             } catch (e) {
                 console.error('Error simpan penjelasan info_kisi-kisi:', e);
             }
 
-            // Kirim ke grup
             const pesanKeGrup =
                 `📢 *PENGUMUMAN KISI-KISI (${hariInput.toUpperCase()})* 📢\n\n` +
                 `${teksInfo}${mediaSection}\n\n` +
@@ -210,7 +293,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
         // ══════════════════════════════════════
         // 2. UPDATE KISI-KISI PER MAPEL
-        //    BEBAS: file saja / teks saja / keduanya
         // ══════════════════════════════════════
         case '!update_kisi-kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
@@ -236,9 +318,8 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                 );
             }
 
-            // Parse mapel dan penjelasan (dipisah " | ")
-            const pipeIdx      = sisaBody.indexOf(' | ');
-            const namaMapel    = (pipeIdx !== -1 ? sisaBody.slice(0, pipeIdx) : sisaBody).trim();
+            const pipeIdx        = sisaBody.indexOf(' | ');
+            const namaMapel      = (pipeIdx !== -1 ? sisaBody.slice(0, pipeIdx) : sisaBody).trim();
             const penjelasanTeks = pipeIdx !== -1 ? sisaBody.slice(pipeIdx + 3).trim() : '';
 
             if (!namaMapel) {
@@ -247,7 +328,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
             const { hasMedia, isImage } = detectMedia(msg);
 
-            // Minimal harus ada salah satu: file atau penjelasan
             if (!hasMedia && !penjelasanTeks) {
                 return reply(
                     `⚠️ Harus ada minimal salah satu:\n` +
@@ -262,7 +342,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
             try {
                 let fileName = null;
 
-                // Simpan file jika ada
                 if (hasMedia) {
                     const buffer = await downloadMedia(msg);
                     if (buffer) {
@@ -271,7 +350,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                         fileName        = `kisi_${hariInput}_${safeMapel}_${Date.now()}${ext}`;
                         fs.writeFileSync(path.join(KISI_FILES_PATH, fileName), buffer);
                     } else {
-                        // Tidak gagalkan seluruh proses — lanjut simpan teks jika ada
                         console.warn("Buffer kosong pada update_kisi-kisi — file diabaikan.");
                         if (!penjelasanTeks) {
                             return reply("❌ Gagal membaca file yang dilampirkan dan tidak ada penjelasan. Coba lagi.");
@@ -279,7 +357,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                     }
                 }
 
-                // Simpan ke JSON
                 const penjelasanData = getPenjelasanData();
                 const key = namaMapel.toLowerCase().trim();
                 if (!penjelasanData[key]) penjelasanData[key] = {};
@@ -301,12 +378,11 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                 const berhasil = savePenjelasanData(penjelasanData);
                 if (!berhasil) return reply("❌ Gagal menyimpan data ke JSON.");
 
-                // Konfirmasi
                 let replyTeks =
                     `✅ *Data Tersimpan!*\n` +
                     `📅 Hari   : *${hariInput}*\n` +
                     `📚 Mapel  : *${namaMapel}*`;
-                if (fileName)      replyTeks += `\n📄 File      : ${fileName}`;
+                if (fileName)       replyTeks += `\n📄 File      : ${fileName}`;
                 if (penjelasanTeks) replyTeks += `\n📝 Penjelasan: "${penjelasanTeks}"`;
 
                 await reply(replyTeks);
@@ -320,19 +396,58 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
         // ══════════════════════════════════════
         // 3. REKAP HARIAN (hari ini)
+        //    Cek JSON dulu → kalau ada tampilkan langsung
+        //    Fallback ke buatTeksKisi() dari ujian_logic
         // ══════════════════════════════════════
         case '!kisi-kisi':
         case '!cek_kisi-kisi': {
             try {
+                const hariIni        = getNamaHariIni();
+                const penjelasanData = getPenjelasanData();
+
+                // Render konten dari JSON (teks langsung di WA, file jadi link)
+                const rekapMapel = renderRekapHari(hariIni, penjelasanData, MY_DOMAIN);
+                const infoHari   = renderInfoHari(hariIni, penjelasanData, MY_DOMAIN);
+
+                // Kalau JSON sudah punya data, pakai itu
+                if (rekapMapel || infoHari) {
+                    let pesan =
+                        `📚 *REKAP KISI-KISI UJIAN*\n` +
+                        `📅 Hari: *${hariIni.toUpperCase()}*\n` +
+                        `━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+                    if (infoHari) {
+                        pesan += `${infoHari}\n\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+                    }
+
+                    if (rekapMapel) {
+                        pesan += rekapMapel;
+                    } else {
+                        pesan += `ℹ️ Belum ada materi mapel untuk hari ini.`;
+                    }
+
+                    pesan += `\n\n━━━━━━━━━━━━━━━━━━━━\n` +
+                             `⚠️ _File materi buka link di atas_`;
+
+                    return await sock.sendMessage(from, { text: pesan }, { quoted: msg });
+                }
+
+                // Fallback ke fungsi buatTeksKisi dari ujian_logic
                 const rekapTeks = await buatTeksKisi();
                 if (!rekapTeks || rekapTeks.trim().length === 0) {
-                    return reply("ℹ️ Belum ada data kisi-kisi untuk hari ini.");
+                    return reply(
+                        `ℹ️ *KISI-KISI ${hariIni.toUpperCase()}*\n\n` +
+                        `Belum ada data kisi-kisi untuk hari ini.\n` +
+                        `Hubungi admin untuk update data.`
+                    );
                 }
+
                 const pesanFull =
                     `📚 *REKAP MATERI KISI-KISI UJIAN* 📚\n\n` +
                     rekapTeks +
-                    `\n\n⚠️ *Cek link folder di atas untuk melihat file materi.*`;
+                    `\n\n⚠️ _Cek link folder di atas untuk melihat file materi._`;
                 await sock.sendMessage(from, { text: pesanFull }, { quoted: msg });
+
             } catch (err) {
                 console.error("Error kisi-kisi:", err);
                 reply("❌ Gagal mengambil data kisi-kisi.");
@@ -342,14 +457,59 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
         // ══════════════════════════════════════
         // 4. REKAP SEMINGGU PENUH
+        //    Tampilkan semua hari yang ada datanya
+        //    Teks langsung di WA, file jadi link web
         // ══════════════════════════════════════
         case '!kisi-kisi_full': {
             try {
+                const penjelasanData = getPenjelasanData();
+                const hariUrut       = ['senin','selasa','rabu','kamis','jumat','sabtu'];
+
+                // Kumpulkan tiap hari yang punya data
+                const bagianHari = [];
+
+                for (const hari of hariUrut) {
+                    const rekapMapel = renderRekapHari(hari, penjelasanData, MY_DOMAIN);
+                    const infoHari   = renderInfoHari(hari, penjelasanData, MY_DOMAIN);
+
+                    if (!rekapMapel && !infoHari) continue; // skip hari kosong
+
+                    let bagian = `📅 *${hari.toUpperCase()}*\n${'─'.repeat(20)}`;
+
+                    if (infoHari) {
+                        bagian += `\n${infoHari}`;
+                    }
+                    if (rekapMapel) {
+                        bagian += `\n\n${rekapMapel}`;
+                    }
+
+                    bagianHari.push(bagian);
+                }
+
+                // Kalau JSON sudah punya data
+                if (bagianHari.length > 0) {
+                    const pesan =
+                        `📚 *REKAP KISI-KISI UJIAN — SEMINGGU* 📚\n` +
+                        `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                        bagianHari.join('\n\n━━━━━━━━━━━━━━━━━━━━\n\n') +
+                        `\n\n━━━━━━━━━━━━━━━━━━━━\n` +
+                        `⚠️ _File materi buka link masing-masing di atas_`;
+
+                    return await sock.sendMessage(from, { text: pesan }, { quoted: msg });
+                }
+
+                // Fallback ke buatTeksKisiFull dari ujian_logic
                 const rekapFull = await buatTeksKisiFull();
                 if (!rekapFull || rekapFull.trim().length === 0) {
-                    return reply("ℹ️ Belum ada data kisi-kisi minggu ini.");
+                    return reply(
+                        `ℹ️ *KISI-KISI MINGGU INI*\n\n` +
+                        `Belum ada data kisi-kisi untuk minggu ini.\n` +
+                        `Hubungi admin untuk update data.`
+                    );
                 }
+
                 await sock.sendMessage(from, { text: rekapFull }, { quoted: msg });
+
             } catch (err) {
                 console.error("Error kisi-kisi_full:", err);
                 reply("❌ Gagal mengambil data kisi-kisi full.");
@@ -359,17 +519,81 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
         // ══════════════════════════════════════
         // 5. JADWAL PRAKTEK
+        //    Tampilkan semua hari yang ada jadwalnya
+        //    Skip hari dengan ket "Tidak ada"
         // ══════════════════════════════════════
         case '!praktek': {
             try {
+                // Coba ambil data praktek dari getStoredPraktek jika tersedia
+                let praktekData = null;
+                try {
+                    praktekData = await getStoredPraktek();
+                } catch (_) {
+                    praktekData = null;
+                }
+
+                // Render dari data mentah jika tersedia
+                if (praktekData && typeof praktekData === 'object') {
+                    const hariUrut = ['senin','selasa','rabu','kamis','jumat','sabtu'];
+                    const baris    = [];
+
+                    for (const hari of hariUrut) {
+                        // Data bisa berupa array of { mapel, ket } atau object
+                        const entri = praktekData[hari];
+                        if (!entri) continue;
+
+                        // Normalisasi: bisa array atau object tunggal
+                        const items = Array.isArray(entri) ? entri : [entri];
+
+                        // Filter yang punya konten nyata
+                        const itemValid = items.filter(item => {
+                            const ket = (item.ket || item.keterangan || '').toLowerCase().trim();
+                            const mapel = (item.mapel || '').toLowerCase().trim();
+                            return (
+                                ket &&
+                                ket !== 'tidak ada' &&
+                                ket !== 'tidak ada jadwal praktek' &&
+                                mapel &&
+                                mapel !== 'tidak ada'
+                            );
+                        });
+
+                        if (itemValid.length === 0) continue;
+
+                        let bagian = `📅 *${hari.toUpperCase()}*`;
+                        for (const item of itemValid) {
+                            bagian += `\n   📚 ${item.mapel}`;
+                            const ket = item.ket || item.keterangan || '';
+                            if (ket) bagian += `\n   📝 ${ket}`;
+                        }
+
+                        baris.push(bagian);
+                    }
+
+                    if (baris.length > 0) {
+                        const pesan =
+                            `🛠️ *JADWAL UJIAN PRAKTEK* 🛠️\n` +
+                            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                            baris.join('\n\n') +
+                            `\n\n━━━━━━━━━━━━━━━━━━━━\n` +
+                            `_Hubungi admin jika ada perubahan jadwal._`;
+
+                        return await sock.sendMessage(from, { text: pesan }, { quoted: msg });
+                    }
+                }
+
+                // Fallback ke buatTeksPraktek dari ujian_logic
                 const teksPraktek = await buatTeksPraktek();
                 if (!teksPraktek || teksPraktek.trim().length < 5) {
                     return reply(
                         `ℹ️ *INFO PRAKTEK*\n\n` +
-                        `Belum ada jadwal ujian praktek yang tersedia saat ini.`
+                        `Belum ada jadwal ujian praktek yang tersedia saat ini.\n` +
+                        `Hubungi admin untuk update jadwal.`
                     );
                 }
+
                 await sock.sendMessage(from, { text: teksPraktek }, { quoted: msg });
+
             } catch (err) {
                 console.error("Error Praktek:", err);
                 reply("❌ Gagal mengambil data praktek.");
@@ -442,7 +666,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                     return reply("⚠️ Sebutkan nama mapel!\nContoh: *!hapus_kisi matematika*");
                 }
 
-                const keyHapus      = namaMapelHapus.toLowerCase().trim();
+                const keyHapus       = namaMapelHapus.toLowerCase().trim();
                 const safeMapelHapus = keyHapus.replace(/[^a-zA-Z0-9]/g, '_');
 
                 // 1. Hapus dari JSON
@@ -502,7 +726,6 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
         // DEFAULT: command tidak dikenal
         // ══════════════════════════════════════
         default:
-            // Tidak perlu reply — biar handler lain yang tangani
             break;
     }
 }
