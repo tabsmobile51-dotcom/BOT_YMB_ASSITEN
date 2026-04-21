@@ -97,23 +97,35 @@ function getNamaHariIni() {
 // HELPER: Render satu entri mapel ke teks WA
 // Penjelasan tampil langsung, file jadi link web
 // ─────────────────────────────────────────
-function renderEntriMapel(namaMapel, data, MY_DOMAIN) {
-    let baris = `📚 *${namaMapel.toUpperCase()}*`;
+// Kapitalisasi setiap kata (Title Case)
+function toTitleCase(str) {
+    return str
+        .split(/[\s_]+/)
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+}
 
-    // Tampilkan teks penjelasan langsung di chat
+function renderEntriMapel(namaMapel, data, MY_DOMAIN) {
+    // Nama mapel title case supaya rapi (misal: "matematika" → "Matematika")
+    const namaRapi = toTitleCase(namaMapel);
+
+    let baris = `┌─ 📚 *${namaRapi}*`;
+
+    // Teks penjelasan langsung di chat
     if (data.teks && data.teks.trim()) {
-        baris += `\n   📝 ${data.teks.trim()}`;
+        baris += `\n│  📝 ${data.teks.trim()}`;
     }
 
-    // Tampilkan file sebagai link ke web
+    // File → link ke web
     if (Array.isArray(data.files) && data.files.length > 0) {
         data.files.forEach((f, i) => {
-            const icon = f.type === 'pdf' ? '📄' : '🖼️';
-            const label = data.files.length > 1 ? ` (${i + 1})` : '';
-            baris += `\n   ${icon} File${label}: ${f.url}`;
+            const icon  = f.type === 'pdf' ? '📄' : '🖼️';
+            const label = data.files.length > 1 ? ` File ${i + 1}` : ' File';
+            baris += `\n│  ${icon}${label}: ${f.url}`;
         });
     }
 
+    baris += `\n└──────────────────`;
     return baris;
 }
 
@@ -150,16 +162,18 @@ function renderInfoHari(hari, penjelasanData, MY_DOMAIN) {
     const infoData = penjelasanData[infoKey];
     if (!infoData) return null;
 
-    let baris = '';
+    let baris = `┌─ 📢 *PENGUMUMAN*`;
     if (infoData.teks && infoData.teks.trim()) {
-        baris += `📢 *INFO:* ${infoData.teks.trim()}`;
+        baris += `\n│  ${infoData.teks.trim()}`;
     }
     if (Array.isArray(infoData.files) && infoData.files.length > 0) {
-        infoData.files.forEach(f => {
-            const icon = f.type === 'pdf' ? '📄' : '🖼️';
-            baris += `\n   ${icon} ${f.url}`;
+        infoData.files.forEach((f, i) => {
+            const icon  = f.type === 'pdf' ? '📄' : '🖼️';
+            const label = infoData.files.length > 1 ? ` File ${i + 1}` : ' File';
+            baris += `\n│  ${icon}${label}: ${f.url}`;
         });
     }
+    baris += `\n└──────────────────`;
 
     return baris.trim() || null;
 }
@@ -412,22 +426,26 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                 // Kalau JSON sudah punya data, pakai itu
                 if (rekapMapel || infoHari) {
                     let pesan =
-                        `📚 *REKAP KISI-KISI UJIAN*\n` +
-                        `📅 Hari: *${hariIni.toUpperCase()}*\n` +
-                        `━━━━━━━━━━━━━━━━━━━━\n\n`;
+                        `╔══════════════════════╗\n` +
+                        `║  📚 KISI-KISI UJIAN  ║\n` +
+                        `╚══════════════════════╝\n` +
+                        `📅 Hari ini: *${hariIni.toUpperCase()}*\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
                     if (infoHari) {
-                        pesan += `${infoHari}\n\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+                        pesan += `${infoHari}\n\n`;
                     }
 
                     if (rekapMapel) {
-                        pesan += rekapMapel;
+                        pesan += `📋 *DAFTAR MATA PELAJARAN:*\n\n${rekapMapel}`;
                     } else {
                         pesan += `ℹ️ Belum ada materi mapel untuk hari ini.`;
                     }
 
-                    pesan += `\n\n━━━━━━━━━━━━━━━━━━━━\n` +
-                             `⚠️ _File materi buka link di atas_`;
+                    pesan +=
+                        `\n\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `🔗 _Buka link di atas untuk lihat file materi_\n` +
+                        `📌 _!kisi-kisi_full untuk rekap seminggu_`;
 
                     return await sock.sendMessage(from, { text: pesan }, { quoted: msg });
                 }
@@ -474,10 +492,12 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
                     if (!rekapMapel && !infoHari) continue; // skip hari kosong
 
-                    let bagian = `📅 *${hari.toUpperCase()}*\n${'─'.repeat(20)}`;
+                    let bagian =
+                        `🗓️ *${hari.toUpperCase()}*\n` +
+                        `${'━'.repeat(22)}`;
 
                     if (infoHari) {
-                        bagian += `\n${infoHari}`;
+                        bagian += `\n\n${infoHari}`;
                     }
                     if (rekapMapel) {
                         bagian += `\n\n${rekapMapel}`;
@@ -489,11 +509,15 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                 // Kalau JSON sudah punya data
                 if (bagianHari.length > 0) {
                     const pesan =
-                        `📚 *REKAP KISI-KISI UJIAN — SEMINGGU* 📚\n` +
-                        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-                        bagianHari.join('\n\n━━━━━━━━━━━━━━━━━━━━\n\n') +
-                        `\n\n━━━━━━━━━━━━━━━━━━━━\n` +
-                        `⚠️ _File materi buka link masing-masing di atas_`;
+                        `╔═══════════════════════════╗\n` +
+                        `║  📚 KISI-KISI SEMINGGU    ║\n` +
+                        `╚═══════════════════════════╝\n` +
+                        `🗓️ Rekap: Senin – Sabtu\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                        bagianHari.join('\n\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n') +
+                        `\n\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `🔗 _Buka link masing-masing untuk lihat file_\n` +
+                        `📌 _!kisi-kisi untuk rekap hari ini saja_`;
 
                     return await sock.sendMessage(from, { text: pesan }, { quoted: msg });
                 }
@@ -560,23 +584,28 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
 
                         if (itemValid.length === 0) continue;
 
-                        let bagian = `📅 *${hari.toUpperCase()}*`;
+                        let bagian =
+                            `┌─ 📅 *${hari.toUpperCase()}*`;
                         for (const item of itemValid) {
-                            bagian += `\n   📚 ${item.mapel}`;
-                            const ket = item.ket || item.keterangan || '';
-                            if (ket) bagian += `\n   📝 ${ket}`;
+                            const namaMapelRapi = toTitleCase(item.mapel || '');
+                            const ket           = item.ket || item.keterangan || '';
+                            bagian += `\n│  📚 *${namaMapelRapi}*`;
+                            if (ket) bagian += `\n│  📝 ${ket}`;
                         }
+                        bagian += `\n└──────────────────`;
 
                         baris.push(bagian);
                     }
 
                     if (baris.length > 0) {
                         const pesan =
-                            `🛠️ *JADWAL UJIAN PRAKTEK* 🛠️\n` +
-                            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                            `╔═══════════════════════════╗\n` +
+                            `║  🛠️  JADWAL UJIAN PRAKTEK  ║\n` +
+                            `╚═══════════════════════════╝\n` +
+                            `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
                             baris.join('\n\n') +
-                            `\n\n━━━━━━━━━━━━━━━━━━━━\n` +
-                            `_Hubungi admin jika ada perubahan jadwal._`;
+                            `\n\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+                            `📌 _Hubungi admin jika ada perubahan jadwal_`;
 
                         return await sock.sendMessage(from, { text: pesan }, { quoted: msg });
                     }
