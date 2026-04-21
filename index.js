@@ -271,11 +271,13 @@ async function start() {
                 addLog("🟢 Bot Berhasil Terhubung ke WhatsApp!");
                 
                 startKeepAlive();
-
-                // Notifikasi Admin saat bot pulih/aktif
-                const adminJid = "6289531549103@s.whatsapp.net";
-                await sock.sendMessage(adminJid, { text: "✅ *SYTEAM-BOT Aktif!*\nSesi berhasil dimuat dan sistem siap digunakan." });
-
+                const adminJid = "6289531549103@s.whatsapp.net"; // ← deklarasi di luar if
+                
+                if (!adminNotified) {
+                    await sock.sendMessage(adminJid, { text: "✅ *SYTEAM-BOT Aktif!*\nSesi berhasil dimuat dan sistem siap digunakan." });
+                    adminNotified = true;
+                }
+                    
                 if (!schedulerInitialized) {
                     initQuizScheduler(sock, botConfig, () => isConnected);
                     initJadwalBesokScheduler(sock, botConfig, safeSend);
