@@ -211,8 +211,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                     `🛠️ *TOOLS ADMIN*\n` +
                     `━━━━━━━━━━━━━━━━━━━━\n\n` +
                     `📝 *!info_kisi-kisi [hari] [pesan]*\n` +
-                    `➝ Kirim info ke grup + simpan penjelasan di web\n` +
-                    `    (bisa lampir foto/PDF sekaligus)\n\n` +
+                    `➝ Kirim pengumuman ke grup (tidak disimpan)\n\n` +
                     `📥 *!update_kisi-kisi [hari] [mapel]*\n` +
                     `    atau dengan penjelasan:\n` +
                     `    *!update_kisi-kisi [hari] [mapel] | [penjelasan]*\n` +
@@ -221,8 +220,8 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                     `➝ Update jadwal praktek (Bebas/Custom)\n\n` +
                     `🗑️ *!hapus_praktek [hari]*\n` +
                     `➝ Hapus jadwal praktek hari tertentu\n\n` +
-                    `🧹 *!hapus_kisi [mapel]*\n` +
-                    `➝ Hapus file + penjelasan mapel tertentu\n`;
+                    `🗑️ *!hapus_kisi-kisi [hari]*\n` +
+                    `➝ Hapus semua mapel + info pengumuman hari itu\n`;
             }
 
             helpTeks += `\n━━━━━━━━━━━━━━━━━━━━`;
@@ -231,7 +230,7 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
         }
 
         // ══════════════════════════════════════
-        // 1. INFO & KIRIM KE GRUP
+        // 1. INFO & KIRIM KE GRUP (tidak disimpan)
         // ══════════════════════════════════════
         case '!info_kisi-kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
@@ -245,63 +244,22 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
                 );
             }
 
-            const { hasMedia, isImage } = detectMedia(msg);
-            let mediaSection  = "";
-            let savedFileName = null;
-
-            if (hasMedia) {
-                const buffer = await downloadMedia(msg);
-                if (buffer) {
-                    const ext     = isImage ? '.jpg' : '.pdf';
-                    savedFileName = `info_${hariInput}_${Date.now()}${ext}`;
-                    try {
-                        fs.writeFileSync(path.join(KISI_FILES_PATH, savedFileName), buffer);
-                        mediaSection = `\n\n🔗 *Link File:* ${MY_DOMAIN}/kisi_ujian/${savedFileName}`;
-                    } catch (err) {
-                        console.error("Error simpan file info_kisi-kisi:", err);
-                        savedFileName = null;
-                    }
-                } else {
-                    console.warn("Buffer kosong — file diabaikan.");
-                }
-            }
-
             const teksInfo = bodyParts.slice(2).join(' ').trim();
-            if (!teksInfo && !mediaSection) {
-                return reply("⚠️ Masukkan pesan info atau lampirkan file!");
+            if (!teksInfo) {
+                return reply(
+                    `⚠️ Masukkan pesan info!\n` +
+                    `Contoh: *!info_kisi-kisi senin Besok bawa alat tulis.*`
+                );
             }
 
-            try {
-                const penjelasanData = getPenjelasanData();
-                const key = `info_${hariInput}`;
-                if (!penjelasanData[key]) penjelasanData[key] = {};
-                if (teksInfo) penjelasanData[key].teks = teksInfo;
-                penjelasanData[key].updatedAt = new Date().toISOString();
-                if (savedFileName) {
-                    if (!penjelasanData[key].files) penjelasanData[key].files = [];
-                    penjelasanData[key].files.push({
-                        name:    savedFileName,
-                        url:     `${MY_DOMAIN}/kisi_ujian/${savedFileName}`,
-                        type:    savedFileName.endsWith('.pdf') ? 'pdf' : 'image',
-                        addedAt: new Date().toISOString()
-                    });
-                }
-                savePenjelasanData(penjelasanData);
-            } catch (e) {
-                console.error('Error simpan penjelasan info_kisi-kisi:', e);
-            }
-
+            // Langsung kirim ke grup — tidak disimpan ke JSON maupun volume
             const pesanKeGrup =
                 `📢 *PENGUMUMAN KISI-KISI (${hariInput.toUpperCase()})* 📢\n\n` +
-                `${teksInfo}${mediaSection}\n\n` +
+                `${teksInfo}\n\n` +
                 `━━━━━━━━━━━━━━━━━━━━\n` +
                 `_Gunakan !kisi-kisi untuk rekap lengkap._`;
             await sock.sendMessage(ID_GRUP_TUJUAN, { text: pesanKeGrup });
-
-            let konfirmasi = `✅ Info kisi-kisi hari *${hariInput}* telah dikirim ke grup.`;
-            if (teksInfo)      konfirmasi += `\n📝 Penjelasan tersimpan di web.`;
-            if (savedFileName) konfirmasi += `\n📎 File tersimpan: ${savedFileName}`;
-            await reply(konfirmasi);
+            await reply(`✅ Info kisi-kisi hari *${hariInput}* telah dikirim ke grup.`);
             break;
         }
 
@@ -685,68 +643,82 @@ async function handleUjianCommands(sock, msg, body, from, sender, reply, KISI_FI
         }
 
         // ══════════════════════════════════════
-        // 8. HAPUS KISI (file + data JSON)
+        // 8. HAPUS KISI-KISI [hari]
+        //    Hapus semua mapel + info pengumuman
+        //    untuk hari yang dipilih sekaligus
         // ══════════════════════════════════════
-        case '!hapus_kisi': {
+        case '!hapus_kisi-kisi': {
             if (!isUserAdmin) return reply("🚫 Akses ditolak.");
+
+            const hariHapus = bodyParts[1]?.toLowerCase().trim();
+            if (!hariHapus || !daftarHariWajib.includes(hariHapus)) {
+                return reply(
+                    `⚠️ Sebutkan hari yang valid!\n` +
+                    `Contoh: *!hapus_kisi-kisi senin*\n\n` +
+                    `Hari tersedia: ${daftarHariWajib.join(', ')}\n\n` +
+                    `⚠️ *Peringatan:* Semua data mapel + pengumuman hari itu akan terhapus!`
+                );
+            }
+
             try {
-                const namaMapelHapus = bodyParts.slice(1).join(' ').trim();
-                if (!namaMapelHapus) {
-                    return reply("⚠️ Sebutkan nama mapel!\nContoh: *!hapus_kisi matematika*");
-                }
-
-                const keyHapus       = namaMapelHapus.toLowerCase().trim();
-                const safeMapelHapus = keyHapus.replace(/[^a-zA-Z0-9]/g, '_');
-
-                // 1. Hapus dari JSON
                 const penjelasanData = getPenjelasanData();
-                let terhapusJson = 0;
+                let terhapusMapel = 0;
+                let terhapusInfo  = 0;
+                let terhapusFile  = 0;
 
+                // ── Kumpulkan semua key yang perlu dihapus ──
+                const keysHapus = [];
                 for (const k of Object.keys(penjelasanData)) {
-                    const kNorm = k.toLowerCase().trim();
-                    const kSafe = k.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-
-                    if (kNorm === keyHapus || kSafe.includes(safeMapelHapus)) {
-                        delete penjelasanData[k];
-                        terhapusJson++;
-                    }
+                    const val      = penjelasanData[k];
+                    const isInfo   = k === `info_${hariHapus}`;
+                    const isMapel  = !k.startsWith('info_') && val.hari?.toLowerCase().trim() === hariHapus;
+                    if (isInfo || isMapel) keysHapus.push({ k, isInfo });
                 }
-                if (terhapusJson > 0) savePenjelasanData(penjelasanData);
 
-                // 2. Hapus file fisik
-                let terhapusFile = 0;
-                if (fs.existsSync(KISI_FILES_PATH)) {
-                    const allFiles    = fs.readdirSync(KISI_FILES_PATH);
-                    const targetFiles = allFiles.filter(f =>
-                        f.toLowerCase().includes(safeMapelHapus)
+                if (keysHapus.length === 0) {
+                    return reply(
+                        `ℹ️ Tidak ada data kisi-kisi untuk hari *${hariHapus}*.`
                     );
+                }
 
-                    for (const file of targetFiles) {
-                        try {
-                            fs.unlinkSync(path.join(KISI_FILES_PATH, file));
-                            terhapusFile++;
-                        } catch (e) {
-                            console.error("Gagal hapus file:", file, e);
+                // ── Hapus file fisik + entri JSON ──
+                for (const { k, isInfo } of keysHapus) {
+                    const entri = penjelasanData[k];
+
+                    // Hapus file lampiran jika ada
+                    if (Array.isArray(entri.files) && entri.files.length > 0) {
+                        for (const f of entri.files) {
+                            try {
+                                const fp = path.join(KISI_FILES_PATH, f.name);
+                                if (fs.existsSync(fp)) { fs.unlinkSync(fp); terhapusFile++; }
+                            } catch (e) {
+                                console.error("Gagal hapus file:", f.name, e);
+                            }
                         }
                     }
+
+                    delete penjelasanData[k];
+                    if (isInfo) terhapusInfo++;
+                    else        terhapusMapel++;
                 }
 
-                if (terhapusJson === 0 && terhapusFile === 0) {
-                    return reply(
-                        `ℹ️ Tidak ditemukan data atau file untuk mapel *${namaMapelHapus}*.`
-                    );
-                }
+                const berhasil = savePenjelasanData(penjelasanData);
+                if (!berhasil) return reply("❌ Gagal menyimpan perubahan ke JSON.");
 
                 await reply(
-                    `✅ *Berhasil Dihapus!*\n` +
-                    `📚 Mapel           : ${namaMapelHapus}\n` +
-                    `📝 Data Penjelasan : ${terhapusJson} entri dihapus\n` +
-                    `📁 File Fisik      : ${terhapusFile} file dihapus`
+                    `✅ *Kisi-Kisi ${hariHapus.toUpperCase()} Dihapus!*\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `📅 Hari           : *${hariHapus}*\n` +
+                    `📚 Mapel dihapus  : ${terhapusMapel} entri\n` +
+                    `📢 Info dihapus   : ${terhapusInfo} entri\n` +
+                    `📁 File dihapus   : ${terhapusFile} file\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `_Semua data hari ${hariHapus} sudah bersih._`
                 );
 
             } catch (err) {
-                console.error("Error hapus_kisi:", err);
-                reply("❌ Gagal menghapus data kisi.");
+                console.error("Error hapus_kisi-kisi:", err);
+                reply("❌ Gagal menghapus data kisi-kisi.");
             }
             break;
         }
