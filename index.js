@@ -33,9 +33,6 @@ const {
     sendJadwalBesokManual 
 } = require('./scheduler'); 
 
-const { initUjianScheduler } = require('./kisi-kisi/ujian_scheduler');
-const { buatTeksKisi, buatTeksPraktet } = require('./kisi-kisi/ujian_logic');
-const { handleKisiKisiWeb, handleKisiKisiApi } = require('./kisi-kisi/kisi_web_handler');
 const { renderDashboard } = require('./views/dashboard'); 
 const { renderMediaView } = require('./views/mediaView'); 
 
@@ -67,11 +64,9 @@ function isAlreadyProcessed(msgId) {
 const VOLUME_PATH = '/app/auth_info';
 const CONFIG_PATH = path.join(VOLUME_PATH, 'config.ridfot'); 
 const PUBLIC_FILES_PATH = path.join(VOLUME_PATH, 'public_files');
-const KISI_FILES_PATH = path.join(VOLUME_PATH, 'kisi_ujian');
 
 if (!fs.existsSync(VOLUME_PATH)) fs.mkdirSync(VOLUME_PATH, { recursive: true });
 if (!fs.existsSync(PUBLIC_FILES_PATH)) fs.mkdirSync(PUBLIC_FILES_PATH, { recursive: true });
-if (!fs.existsSync(KISI_FILES_PATH)) fs.mkdirSync(KISI_FILES_PATH, { recursive: true });
 
 // --- KONFIGURASI DEFAULT BOT ---
 let botConfig = { 
@@ -80,9 +75,7 @@ let botConfig = {
     smartFeedback: true, 
     prMingguan: true, 
     sahur: true,
-    kisiUjian: true, 
-    praktekUjian: true,
-    autoRejectCall: true,  // [TAMBAHAN] Fitur auto-reject panggilan
+    autoRejectCall: true,
 };
 
 function loadConfig() {
@@ -145,7 +138,7 @@ let qrCodeData = "";
 let isConnected = false;
 let sock;
 let logs = [];
-let stats = { pesanMasuk: 0, totalLog: 0, teleponDitolak: 0 }; // [TAMBAHAN] counter tolak telpon
+let stats = { pesanMasuk: 0, totalLog: 0, teleponDitolak: 0 };
 let schedulerInitialized = false;
 let adminNotified = false;
 
@@ -180,7 +173,7 @@ const safeSend = async (jid, content, options = {}, retries = 2) => {
     return null;
 };
 
-const botUtils = { safeSend, getWeekDates, sendJadwalBesokManual, buatTeksKisi, buatTeksPraktet };
+const botUtils = { safeSend, getWeekDates, sendJadwalBesokManual };
 
 // ─────────────────────────────────────────────────────────────
 // KEEPALIVE PING
@@ -204,13 +197,8 @@ const startKeepAlive = () => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// [TAMBAHAN] AUTO-REJECT PANGGILAN (VOICE & VIDEO CALL)
+// AUTO-REJECT PANGGILAN (VOICE & VIDEO CALL)
 // ─────────────────────────────────────────────────────────────
-/**
- * Menolak panggilan masuk secara otomatis.
- * Dipanggil dari event 'call' pada socket Baileys.
- * @param {Array} callEvents - Array event panggilan dari Baileys
- */
 async function handleIncomingCall(callEvents) {
     if (!botConfig.autoRejectCall) return;
 
@@ -228,7 +216,7 @@ async function handleIncomingCall(callEvents) {
             stats.teleponDitolak++;
             addLog(`🚫 ${callType} DITOLAK otomatis dari: ${callerNumber}`);
 
-            // [OPSIONAL] Kirim pesan balasan ke pemanggil setelah ditolak
+            // Kirim pesan balasan ke pemanggil setelah ditolak
             await safeSend(call.from, { 
                 text: `⛔ *Panggilan Ditolak Otomatis*\n\nMaaf, bot ini tidak dapat menerima panggilan telepon.\nSilakan kirim pesan teks jika ada yang perlu ditanyakan. 🙏` 
             });
@@ -267,14 +255,7 @@ app.get("/", (req, res) => {
     res.send(renderDashboard(isConnected, qrCodeData, botConfig, stats, logs, port));
 });
 
-app.get("/kisi-kisi", (req, res) => handleKisiKisiWeb(req, res));
-app.get("/kisi-api/*", (req, res) => {
-    const pathname = url.parse(req.url).pathname;
-    return handleKisiKisiApi(req, res, pathname);
-});
-
 app.use('/files', express.static(PUBLIC_FILES_PATH));
-app.use('/kisi_ujian', express.static(KISI_FILES_PATH));
 
 app.get("/tugas/:filenames", (req, res) => {
     const filenames = req.params.filenames.split(','); 
@@ -411,7 +392,6 @@ async function start() {
                     initSmartFeedbackScheduler(sock, botConfig, safeSend);
                     initListPrMingguanScheduler(sock, botConfig, safeSend);
                     initSahurScheduler(sock, botConfig, safeSend);
-                    initUjianScheduler(sock, adminJid, botConfig); 
                     schedulerInitialized = true;
                     addLog("✅ Semua scheduler berhasil diinisialisasi");
                 }
@@ -419,7 +399,6 @@ async function start() {
         });
 
         // ── EVENT: AUTO-REJECT PANGGILAN ─────────────────────────
-        // [TAMBAHAN] Event 'call' ditangkap lalu langsung ditolak
         sock.ev.on("call", async (callEvents) => {
             await handleIncomingCall(callEvents);
         });
