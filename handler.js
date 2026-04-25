@@ -25,8 +25,8 @@ function levenshtein(a, b) {
 const ALL_VALID_COMMANDS = [
     'cekbot', 'p', 'tes', 'list_pr', 'pr', 'tugas_lama', 'deadline', 'dl',
     'bantuan', 'menu', 'help', 'start', 'jadwal', 'jwl', 'lapor', 'lapor_pr',
-    'update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru', 
-    'update_deadline', 'jadwal_baru', 'update_list_pr'
+    'update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru',
+    'update_deadline'
 ];
 
 function getClosestCommand(cmd) {
@@ -130,7 +130,7 @@ async function handleMessages(sock, m, botConfig, utils) {
 
         // --- ROUTING COMMAND ---
         const userCmds = ['cekbot', 'p', 'tes', 'list_pr', 'pr', 'tugas_lama', 'deadline', 'dl', 'jadwal', 'jwl', 'lapor', 'lapor_pr'];
-        const adminCmds = ['update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru', 'update_deadline', 'update_list_pr', 'jadwal_baru'];
+        const adminCmds = ['update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru', 'update_deadline'];
 
         if (userCmds.includes(cmd)) {
             await handleUserCommands(sock, msg, '!' + cmd, args, utils);
