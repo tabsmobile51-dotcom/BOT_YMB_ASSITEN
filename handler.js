@@ -102,6 +102,9 @@ async function handleMessages(sock, m, botConfig, utils) {
                     `✅ *!update [hari] [mapel] [tugas]*\n` +
                     `➝ Update PR & kirim ke grup\n\n` +
 
+                    `📝 *!update_list_pr [hari] [mapel] [tugas]*\n` +
+                    `➝ Update PR (Hanya simpan di bot)\n\n` +
+
                     `📢 *!info [pesan]*\n` +
                     `➝ Kirim pengumuman ke grup\n\n` +
 
