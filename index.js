@@ -39,7 +39,31 @@ const { handleKisiKisiWeb, handleKisiKisiApi } = require('./kisi-kisi/kisi_web_h
 const { renderDashboard } = require('./views/dashboard'); 
 const { renderMediaView } = require('./views/mediaView'); 
 
-// --- KONFIGURASI PATH DINAMIS ---
+// ─────────────────────────────────────────────────────────────
+// WAKTU BOT START — untuk filter pesan lama saat reconnect
+// Semua pesan yang timestamp-nya SEBELUM waktu ini akan di-skip
+// ─────────────────────────────────────────────────────────────
+const BOT_START_TIME = Math.floor(Date.now() / 1000); // Unix timestamp detik
+
+// ─────────────────────────────────────────────────────────────
+// CACHE MESSAGE ID — cegah pesan diproses 2x saat reconnect
+// ─────────────────────────────────────────────────────────────
+const processedMsgIds = new Set();
+const MAX_CACHE_SIZE = 500; // Batas cache agar RAM tidak bocor
+
+function isAlreadyProcessed(msgId) {
+    if (processedMsgIds.has(msgId)) return true;
+    processedMsgIds.add(msgId);
+    // Auto-bersih kalau cache terlalu besar
+    if (processedMsgIds.size > MAX_CACHE_SIZE) {
+        const firstItem = processedMsgIds.values().next().value;
+        processedMsgIds.delete(firstItem);
+    }
+    return false;
+}
+
+// ─────────────────────────────────────────────────────────────
+// KONFIGURASI PATH DINAMIS ---
 const VOLUME_PATH = '/app/auth_info';
 const CONFIG_PATH = path.join(VOLUME_PATH, 'config.ridfot'); 
 const PUBLIC_FILES_PATH = path.join(VOLUME_PATH, 'public_files');
@@ -366,6 +390,9 @@ async function start() {
                 qrCodeData = "";
                 addLog("🟢 Bot Berhasil Terhubung ke WhatsApp!");
                 
+                // Reset cache pesan agar reconnect tidak bawa duplikat lama
+                processedMsgIds.clear();
+
                 startKeepAlive();
 
                 const adminJid = process.env.ADMIN_JID || "6289531549103@s.whatsapp.net";
@@ -401,38 +428,57 @@ async function start() {
         sock.ev.on("messages.upsert", async (m) => {
             if (m.type !== 'notify') return;
 
-            const msg = m.messages[0];
-            // [BUG FIX] Cek juga key.remoteJid agar tidak crash di pesan system
-            if (!msg || !msg.message || msg.key.fromMe || !msg.key.remoteJid) return;
+            for (const msg of m.messages) {
+                // ── GUARD: validasi dasar ─────────────────────────────
+                if (!msg || !msg.message || msg.key.fromMe || !msg.key.remoteJid) continue;
 
-            stats.pesanMasuk++;
-            const senderName = msg.pushName || 'User';
-            const body = 
-                msg.message?.conversation || 
-                msg.message?.extendedTextMessage?.text || 
-                msg.message?.imageMessage?.caption || 
-                "";
+                const msgId       = msg.key.id;
+                const msgTimestamp = Number(msg.messageTimestamp); // Unix detik
 
-            // Cek emergency terlebih dahulu
-            let isEmergency = false;
-            try {
-                isEmergency = await handleEmergency(sock, msg, body);
-            } catch (err) {
-                addLog(`❌ handleEmergency error: ${err.message}`);
-            }
+                // ── FILTER #1: Buang pesan lama (dikirim saat bot offline) ──
+                // Toleransi 10 detik untuk menghindari race condition waktu startup
+                if (msgTimestamp < (BOT_START_TIME - 10)) {
+                    // Hanya log sekali per sesi supaya tidak banjir log
+                    if (processedMsgIds.size === 0) {
+                        addLog(`⏩ Pesan lama di-skip (offline backlog). Hanya memproses pesan baru.`);
+                    }
+                    processedMsgIds.add(msgId); // Tandai sudah diketahui
+                    continue;
+                }
 
-            if (isEmergency) {
-                addLog(`🚨 KODE DARURAT DIPICU OLEH: ${senderName}`);
-                return; 
-            }
+                // ── FILTER #2: Buang pesan duplikat (dari reconnect) ──
+                if (isAlreadyProcessed(msgId)) continue;
 
-            addLog(`📩 Pesan masuk dari: ${senderName}`);
+                // ── PROSES PESAN VALID ────────────────────────────────
+                stats.pesanMasuk++;
+                const senderName = msg.pushName || 'User';
+                const body = 
+                    msg.message?.conversation || 
+                    msg.message?.extendedTextMessage?.text || 
+                    msg.message?.imageMessage?.caption || 
+                    "";
 
-            // Handle pesan normal
-            try {
-                await handleMessages(sock, m, botConfig, botUtils, safeSend);
-            } catch (err) {
-                addLog(`❌ handleMessages error: ${err.message}`);
+                // Cek emergency terlebih dahulu
+                let isEmergency = false;
+                try {
+                    isEmergency = await handleEmergency(sock, msg, body);
+                } catch (err) {
+                    addLog(`❌ handleEmergency error: ${err.message}`);
+                }
+
+                if (isEmergency) {
+                    addLog(`🚨 KODE DARURAT DIPICU OLEH: ${senderName}`);
+                    continue; 
+                }
+
+                addLog(`📩 Pesan masuk dari: ${senderName}`);
+
+                // Handle pesan normal — bungkus m agar kompatibel dengan handler lama
+                try {
+                    await handleMessages(sock, { type: m.type, messages: [msg] }, botConfig, botUtils, safeSend);
+                } catch (err) {
+                    addLog(`❌ handleMessages error: ${err.message}`);
+                }
             }
         });
 
