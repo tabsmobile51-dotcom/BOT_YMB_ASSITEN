@@ -5,7 +5,7 @@ const path = require("path");
 // ─────────────────────────────────────────────────────────────
 // KONFIGURASI
 // ─────────────────────────────────────────────────────────────
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "ISI_API_KEY_OPENROUTER_DISINI";
+const OPENROUTER_API_KEY = "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";
 
 // Model gratis yang tersedia di OpenRouter (tidak perlu bayar)
 const AI_MODEL = "meta-llama/llama-3.1-8b-instruct:free";
