@@ -64,18 +64,24 @@ async function handleMessages(sock, m, botConfig, utils) {
         if (!body) return;
         await sock.readMessages([msg.key]);
 
-        const textLower = body.toLowerCase();
+        const isGroup = sender.endsWith('@g.us');
+        const isPrivate = !isGroup;
         const isAdmin = ADMIN_RAW.some(admin => sender.includes(admin));
         const nonAdminMsg = "🚫 *AKSES DITOLAK*\n\nMaaf, fitur ini hanya bisa diakses oleh *Pengurus*. Kamu bisa gunakan fitur siswa seperti *!list_pr* atau *!bantuan* ya! 😊";
 
-        // Logika AI — dicek SEBELUM filter !, tetap bisa jalan tanpa !
-        if (textLower.includes('asisten')) {
+        // ─────────────────────────────────────────────────────────
+        // MODE PRIVATE/DM — chat bebas tanpa !, langsung ke AI
+        // Command ! tetap bisa dipakai di private juga
+        // ─────────────────────────────────────────────────────────
+        if (isPrivate && !body.startsWith('!')) {
             await sock.sendPresenceUpdate('composing', sender);
             const response = await askAI(body);
             return await sock.sendMessage(sender, { text: response }, { quoted: msg });
         }
 
-        // ✅ Wajib pakai ! — abaikan semua pesan tanpa prefix
+        // ─────────────────────────────────────────────────────────
+        // MODE GRUP — wajib pakai !, abaikan pesan tanpa prefix
+        // ─────────────────────────────────────────────────────────
         if (!body.startsWith('!')) return;
 
         // Parsing Command
