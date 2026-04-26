@@ -3,7 +3,6 @@ RUN apt-get update && apt-get install -y git ffmpeg && apt-get clean && rm -rf /
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --no-audit --no-fund
-RUN npm install @google/generative-ai --no-audit --no-fund
 # Tambahkan baris ini supaya folder volume punya izin akses
 RUN mkdir -p /app/auth_info && chmod 777 /app/auth_info
 COPY . .
