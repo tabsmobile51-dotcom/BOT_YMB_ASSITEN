@@ -72,9 +72,23 @@ async function handleMessages(sock, m, botConfig, utils) {
         // ─────────────────────────────────────────────────────────
         // CEK MENTION DI GRUP — siapapun bisa @bot langsung ke AI
         // ─────────────────────────────────────────────────────────
-        const botNumber = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0] || '';
-        const mentionedJids = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
+        const rawId = sock.user?.id || '';
+        const botNumber = rawId.split(':')[0].split('@')[0];
+        const mentionedJids =
+            msg.message.extendedTextMessage?.contextInfo?.mentionedJid ||
+            msg.message.extendedTextMessage?.contextInfo?.mentionedJids ||
+            [];
         const isMentioned = botNumber && mentionedJids.some(jid => jid.includes(botNumber));
+
+        // DEBUG — hapus setelah berhasil
+        if (isGroup) {
+            console.log('[MENTION DEBUG]');
+            console.log('  sock.user.id  :', rawId);
+            console.log('  botNumber     :', botNumber);
+            console.log('  mentionedJids :', JSON.stringify(mentionedJids));
+            console.log('  isMentioned   :', isMentioned);
+            console.log('  body          :', body);
+        }
 
         if (isGroup && isMentioned && !body.startsWith('!')) {
             const cleanBody = body.replace(/@\d+/g, '').trim();
