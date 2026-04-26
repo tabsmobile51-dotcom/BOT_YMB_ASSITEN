@@ -75,7 +75,7 @@ async function handleMessages(sock, m, botConfig, utils) {
         // ─────────────────────────────────────────────────────────
         if (isPrivate && !body.startsWith('!')) {
             await sock.sendPresenceUpdate('composing', sender);
-            const response = await askAI(body);
+            const response = await askAI(body, sender);
             return await sock.sendMessage(sender, { text: response }, { quoted: msg });
         }
 
