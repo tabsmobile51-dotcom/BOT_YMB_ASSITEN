@@ -1,19 +1,20 @@
-const axios = require("axios");
-const fs = require("fs");
+const { GoogleGenAI } = require("@google/genai");
 const path = require("path");
 
 // ─────────────────────────────────────────────────────────────
 // KONFIGURASI
 // ─────────────────────────────────────────────────────────────
-const OPENROUTER_API_KEY = "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";
-const AI_MODEL = "inclusionai/ling-2.6-1t:free";
+const AI_MODEL = "gemini-2.0-flash";
 
 const VOLUME_PATH   = '/app/auth_info';
 const PR_PATH       = path.join(VOLUME_PATH, 'pr.json');
 const DEADLINE_PATH = path.join(VOLUME_PATH, 'deadline.json');
 
 const { MAPEL_CONFIG, STRUKTUR_JADWAL, LABELS } = require('./pelajaran');
-const db = require('./data'); // Mengambil data dari db.js agar sinkron
+const db = require('./data');
+
+// Init Gemini (ambil API key dari env GEMINI_API_KEY)
+const ai = new GoogleGenAI({ apiKey: "AIzaSyABFSBgYam0k85Klg5eO3woNX0-X3UYwXU" });
 
 // ─────────────────────────────────────────────────────────────
 // RATE LIMITER
@@ -46,7 +47,6 @@ function getTanggalFormatted(date = new Date()) {
     });
 }
 
-// Helper untuk tanggal mingguan agar sinkron dengan scheduler
 function getWeekDates() {
     const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
     const dayOfWeek = now.getDay();
@@ -68,38 +68,34 @@ function buildContextData() {
     const now = Date.now();
     if (cachedContext && (now - cacheTimestamp) < CACHE_TTL_MS) return cachedContext;
 
-    const currentData = db.getAll() || {}; 
+    const currentData = db.getAll() || {};
     const dates = getWeekDates();
     const hariIni = getNamaHari();
     const besok = getNamaHari(new Date(now + 86400000));
     const tanggal = getTanggalFormatted();
 
-    // Jadwal ringkas
     let jadwalTeks = "JADWAL:\n";
     for (const [hari, mapelList] of Object.entries(STRUKTUR_JADWAL)) {
         jadwalTeks += `${hari}: ${mapelList.map(k => MAPEL_CONFIG[k] || k).join(', ')}\n`;
     }
 
-    // PR ringkas (Logika sinkron dengan scheduler manual)
     let prTeks = "PR/TUGAS:\n";
-    const daysKey = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
+    const daysKey   = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
     const dayLabels = ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
 
     for (let i = 0; i < 5; i++) {
         const hariKey = daysKey[i];
-        const tugas = currentData[hariKey];
-        const tgl = dates[i];
+        const tugas   = currentData[hariKey];
+        const tgl     = dates[i];
 
         if (!tugas || tugas === "" || tugas.includes("Belum ada tugas") || tugas.includes("Tidak ada PR")) {
             prTeks += `${dayLabels[i]} (${tgl}): kosong\n`;
         } else {
-            // Bersihkan teks dari format berlebih agar AI mudah baca
             const cleanTugas = tugas.replace(/\n/g, " ").replace(/━━━━━━━━━━━━━━━━━━━━/g, "");
             prTeks += `${dayLabels[i]} (${tgl}): ${cleanTugas}\n`;
         }
     }
 
-    // Deadline khusus
     let deadlineTeks = "DEADLINE KHUSUS:\n";
     deadlineTeks += currentData.deadline || "tidak ada\n";
 
@@ -120,7 +116,7 @@ function getHistory(userId) {
 
 function addToHistory(userId, role, content) {
     const history = getHistory(userId);
-    history.push({ role, content });
+    history.push({ role, parts: [{ text: content }] });
     if (history.length > 10) history.splice(0, history.length - 10);
 }
 
@@ -143,42 +139,34 @@ Jawab HANYA berdasarkan data ini, jangan ngarang data PR atau jadwal:
 ${konteks}
 Kalau data kosong bilang tidak ada. Kalau pertanyaan di luar data (pelajaran, umum, dll), jawab seperti biasa.`;
 
-        const messages = [
-            { role: "system", content: systemPrompt },
-            ...getHistory(userId),
-            { role: "user", content: userMessage }
-        ];
+        // Gemini pakai format { role, parts } — history sudah dalam format ini
+        const history = getHistory(userId);
 
-        const response = await axios.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            {
-                model: AI_MODEL,
-                messages,
-                max_tokens: 500,
+        const chat = ai.chats.create({
+            model: AI_MODEL,
+            config: {
+                systemInstruction: systemPrompt,
+                maxOutputTokens: 500,
                 temperature: 0.7,
             },
-            {
-                headers: {
-                    "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://syteam-bot.railway.app",
-                    "X-Title": "SYTEAM-BOT"
-                },
-                timeout: 30000
-            }
-        );
+            history: history,
+        });
 
-        const reply = response.data.choices[0]?.message?.content?.trim();
+        const response = await chat.sendMessage({
+            message: userMessage,
+        });
+
+        const reply = response.text?.trim();
         if (!reply) throw new Error("Respons AI kosong");
 
         addToHistory(userId, 'user', userMessage);
-        addToHistory(userId, 'assistant', reply);
+        addToHistory(userId, 'model', reply); // Gemini pakai 'model', bukan 'assistant'
 
         return reply;
 
     } catch (err) {
-        console.error("❌ OpenRouter AI Error:", err.response?.data || err.message);
-        if (err.response?.status === 429) return "Lagi rame nih, coba lagi sebentar ya! ⏳";
+        console.error("❌ Gemini AI Error:", err.message || err);
+        if (err.status === 429) return "Lagi rame nih, coba lagi sebentar ya! ⏳";
         if (err.code === 'ECONNABORTED') return "Koneksi timeout, coba lagi ya! 🙏";
         return "Aduh, lagi ada gangguan nih. Coba lagi bentar ya! 🙏";
     }
