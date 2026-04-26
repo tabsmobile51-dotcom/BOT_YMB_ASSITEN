@@ -4,7 +4,7 @@ const path = require("path");
 // ─────────────────────────────────────────────────────────────
 // KONFIGURASI
 // ─────────────────────────────────────────────────────────────
-const AI_MODEL = "gemini-2.0-flash";
+const AI_MODEL = "gemini-3-flash-preview";
 
 const VOLUME_PATH   = '/app/auth_info';
 const PR_PATH       = path.join(VOLUME_PATH, 'pr.json');
