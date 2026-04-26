@@ -8,7 +8,7 @@ const path = require("path");
 const OPENROUTER_API_KEY = "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";
 
 // Model gratis yang tersedia di OpenRouter (tidak perlu bayar)
-const AI_MODEL = "meta-llama/llama-3.1-8b-instruct:free";
+const AI_MODEL = "google/gemini-2.0-flash-exp:free";
 
 const VOLUME_PATH   = '/app/auth_info';
 const PR_PATH       = path.join(VOLUME_PATH, 'pr.json');
