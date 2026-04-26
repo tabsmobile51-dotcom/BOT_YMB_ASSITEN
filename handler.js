@@ -74,24 +74,17 @@ async function handleMessages(sock, m, botConfig, utils) {
         // ─────────────────────────────────────────────────────────
         const rawId = sock.user?.id || '';
         const botNumber = rawId.split(':')[0].split('@')[0];
+        const botLid = sock.user?.lid?.split(':')[0].split('@')[0] || '';
         const mentionedJids =
             msg.message.extendedTextMessage?.contextInfo?.mentionedJid ||
             msg.message.extendedTextMessage?.contextInfo?.mentionedJids ||
             [];
-        const isMentioned = botNumber && mentionedJids.some(jid => jid.includes(botNumber));
-
-        // DEBUG — hapus setelah berhasil
-        if (isGroup) {
-            console.log('[MENTION DEBUG]');
-            console.log('  sock.user.id  :', rawId);
-            console.log('  botNumber     :', botNumber);
-            console.log('  mentionedJids :', JSON.stringify(mentionedJids));
-            console.log('  isMentioned   :', isMentioned);
-            console.log('  body          :', body);
-        }
+        const isMentioned = botNumber && mentionedJids.some(jid =>
+            jid.includes(botNumber) || (botLid && jid.includes(botLid))
+        );
 
         if (isGroup && isMentioned && !body.startsWith('!')) {
-            const cleanBody = body.replace(/@\d+/g, '').trim();
+            const cleanBody = body.replace(/@\S+/g, '').trim();
             if (!cleanBody) return;
             await sock.sendPresenceUpdate('composing', sender);
             const response = await askAI(cleanBody, sender);
