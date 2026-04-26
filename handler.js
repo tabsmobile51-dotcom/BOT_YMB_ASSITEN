@@ -54,8 +54,6 @@ async function handleMessages(sock, m, botConfig, utils) {
         const sender = msg.key.remoteJid;
         const pushName = msg.pushName || 'User';
         const from = msg.key.remoteJid;
-        const botNumber = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-
         const body = (
             msg.message.conversation ||
             msg.message.extendedTextMessage?.text ||
@@ -69,11 +67,26 @@ async function handleMessages(sock, m, botConfig, utils) {
         const isGroup = sender.endsWith('@g.us');
         const isPrivate = !isGroup;
         const isAdmin = ADMIN_RAW.some(admin => sender.includes(admin));
-        const isMentioned = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.includes(botNumber);
         const nonAdminMsg = "🚫 *AKSES DITOLAK*\n\nMaaf, fitur ini hanya bisa diakses oleh *Pengurus*. Kamu bisa gunakan fitur siswa seperti *!list_pr* atau *!bantuan* ya! 😊";
 
         // ─────────────────────────────────────────────────────────
+        // CEK MENTION DI GRUP — siapapun bisa @bot langsung ke AI
+        // ─────────────────────────────────────────────────────────
+        const botNumber = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0] || '';
+        const mentionedJids = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
+        const isMentioned = botNumber && mentionedJids.some(jid => jid.includes(botNumber));
+
+        if (isGroup && isMentioned && !body.startsWith('!')) {
+            const cleanBody = body.replace(/@\d+/g, '').trim();
+            if (!cleanBody) return;
+            await sock.sendPresenceUpdate('composing', sender);
+            const response = await askAI(cleanBody, sender);
+            return await sock.sendMessage(sender, { text: response }, { quoted: msg });
+        }
+
+        // ─────────────────────────────────────────────────────────
         // MODE PRIVATE/DM — chat bebas tanpa !, langsung ke AI
+        // Command ! tetap bisa dipakai di private juga
         // ─────────────────────────────────────────────────────────
         if (isPrivate && !body.startsWith('!')) {
             await sock.sendPresenceUpdate('composing', sender);
@@ -82,18 +95,7 @@ async function handleMessages(sock, m, botConfig, utils) {
         }
 
         // ─────────────────────────────────────────────────────────
-        // MODE GRUP — AI aktif jika di-tag (@bot) tanpa tanda seru
-        // ─────────────────────────────────────────────────────────
-        if (isGroup && isMentioned && !body.startsWith('!')) {
-            await sock.sendPresenceUpdate('composing', sender);
-            // Bersihkan mention @nomor dari teks agar AI tidak bingung
-            const cleanText = body.replace(/@\d+/g, '').trim();
-            const response = await askAI(cleanText || "Halo", sender);
-            return await sock.sendMessage(sender, { text: response }, { quoted: msg });
-        }
-
-        // ─────────────────────────────────────────────────────────
-        // MODE COMMAND — wajib pakai !
+        // MODE GRUP — wajib pakai !, abaikan pesan tanpa prefix
         // ─────────────────────────────────────────────────────────
         if (!body.startsWith('!')) return;
 
@@ -112,8 +114,7 @@ async function handleMessages(sock, m, botConfig, utils) {
                 `📆 *!jadwal* -> Lihat jadwal pelajaran\n` +
                 `📢 *!lapor* -> Lapor ke Admin\n` +
                 `⏳ *!deadline* -> PR belum dikumpul\n` +
-                `⚡ *!p* -> Cek status bot\n` +
-                `🤖 *Tag @bot* -> Tanya AI (Bebas)\n`;
+                `⚡ *!p* -> Cek status bot\n`;
 
             if (isAdmin) {
                 menuTeks += 
@@ -144,7 +145,7 @@ async function handleMessages(sock, m, botConfig, utils) {
                     `➝ Restart sistem bot\n`;
             }
 
-            menuTeks += `\n━━━━━━━━━━━━━━━━━━━━\n_Semua perintah wajib diawali tanda (!) atau tag bot_`;
+            menuTeks += `\n━━━━━━━━━━━━━━━━━━━━\n_Semua perintah wajib diawali tanda (!)_`;
             return await sock.sendMessage(sender, { text: menuTeks });
         }
 
