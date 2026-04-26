@@ -1,40 +1,51 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 
 // ─────────────────────────────────────────────────────────────
 // KONFIGURASI
 // ─────────────────────────────────────────────────────────────
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "ISI_API_KEY_KAMU_DISINI";
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "ISI_API_KEY_OPENROUTER_DISINI";
 
-// Path data dari volume (samain sama path di bot kamu)
-const VOLUME_PATH = '/app/auth_info';
-const PR_PATH     = path.join(VOLUME_PATH, 'pr.json');
+// Model gratis yang tersedia di OpenRouter (tidak perlu bayar)
+const AI_MODEL = "meta-llama/llama-3.1-8b-instruct:free";
+
+const VOLUME_PATH   = '/app/auth_info';
+const PR_PATH       = path.join(VOLUME_PATH, 'pr.json');
 const DEADLINE_PATH = path.join(VOLUME_PATH, 'deadline.json');
 
-// Import struktur jadwal & nama mapel
 const { MAPEL_CONFIG, STRUKTUR_JADWAL, LABELS } = require('./pelajaran');
 
 // ─────────────────────────────────────────────────────────────
-// HELPER — Baca JSON dengan aman
+// RATE LIMITER — maks 1 request per 3 detik per user
 // ─────────────────────────────────────────────────────────────
-function readJson(filePath) {
-    try {
-        if (!fs.existsSync(filePath)) return {};
-        const raw = fs.readFileSync(filePath, 'utf-8');
-        return JSON.parse(raw);
-    } catch {
-        return {};
-    }
+const lastRequestTime = new Map();
+const RATE_LIMIT_MS = 3000;
+
+function isRateLimited(userId) {
+    const now  = Date.now();
+    const last = lastRequestTime.get(userId) || 0;
+    if (now - last < RATE_LIMIT_MS) return true;
+    lastRequestTime.set(userId, now);
+    return false;
 }
 
 // ─────────────────────────────────────────────────────────────
-// HELPER — Ambil nama hari ini & besok dalam bahasa Indonesia
+// CACHE KONTEKS — rebuild tiap 5 menit
 // ─────────────────────────────────────────────────────────────
+let cachedContext  = null;
+let cacheTimestamp = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+function readJson(filePath) {
+    try {
+        if (!fs.existsSync(filePath)) return {};
+        return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    } catch { return {}; }
+}
+
 function getNamaHari(date = new Date()) {
-    const HARI = ['minggu', 'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu'];
-    return HARI[date.getDay()];
+    return ['minggu','senin','selasa','rabu','kamis','jumat','sabtu'][date.getDay()];
 }
 
 function getTanggalFormatted(date = new Date()) {
@@ -43,132 +54,132 @@ function getTanggalFormatted(date = new Date()) {
     });
 }
 
-// ─────────────────────────────────────────────────────────────
-// BUILDER — Buat ringkasan data PR & jadwal jadi teks konteks
-// ─────────────────────────────────────────────────────────────
 function buildContextData() {
+    const now = Date.now();
+    if (cachedContext && (now - cacheTimestamp) < CACHE_TTL_MS) return cachedContext;
+
     const prData       = readJson(PR_PATH);
     const deadlineData = readJson(DEADLINE_PATH);
+    const hariIni      = getNamaHari();
+    const besok        = getNamaHari(new Date(now + 86400000));
+    const tanggal      = getTanggalFormatted();
 
-    const hariIni   = getNamaHari();
-    const besok     = getNamaHari(new Date(Date.now() + 86400000));
-    const tanggal   = getTanggalFormatted();
-
-    // ── Jadwal per hari ──
-    let jadwalTeks = "📅 JADWAL PELAJARAN PER HARI:\n";
+    // Jadwal ringkas
+    let jadwalTeks = "JADWAL:\n";
     for (const [hari, mapelList] of Object.entries(STRUKTUR_JADWAL)) {
-        const namaMapel = mapelList.map(k => MAPEL_CONFIG[k] || k).join(', ');
-        jadwalTeks += `• ${hari.charAt(0).toUpperCase() + hari.slice(1)}: ${namaMapel}\n`;
+        jadwalTeks += `${hari}: ${mapelList.map(k => MAPEL_CONFIG[k] || k).join(', ')}\n`;
     }
 
-    // ── Data PR per hari ──
-    let prTeks = "\n📝 DATA PR / TUGAS PER HARI:\n";
-    const hariUrut = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
+    // PR ringkas
+    let prTeks = "PR/TUGAS:\n";
+    const hariUrut = ['senin','selasa','rabu','kamis','jumat'];
     for (const hari of hariUrut) {
         const tugasList = prData[hari];
         if (!tugasList || Object.keys(tugasList).length === 0) {
-            prTeks += `• ${hari.charAt(0).toUpperCase() + hari.slice(1)}: Kosong\n`;
+            prTeks += `${hari}: kosong\n`;
             continue;
         }
-        prTeks += `• ${hari.charAt(0).toUpperCase() + hari.slice(1)}:\n`;
         for (const [mapelKey, tugas] of Object.entries(tugasList)) {
-            const namaMapel = MAPEL_CONFIG[mapelKey] || mapelKey;
-            const labelKey  = tugas.label?.toLowerCase() || '';
-            const labelTeks = LABELS[labelKey] || tugas.label || '';
-            const deadlineTeks = tugas.deadline ? `(Deadline: ${tugas.deadline})` : '';
-            const linkTeks = tugas.fileUrl ? `[ada file: ${tugas.fileUrl}]` : '';
-            prTeks += `  - ${namaMapel}: ${tugas.tugas} ${labelTeks} ${deadlineTeks} ${linkTeks}\n`;
+            const nama     = MAPEL_CONFIG[mapelKey] || mapelKey;
+            const deadline = tugas.deadline ? ` (deadline: ${tugas.deadline})` : '';
+            const file     = tugas.fileUrl ? ' [ada file]' : '';
+            prTeks += `${hari} - ${nama}: ${tugas.tugas}${deadline}${file}\n`;
         }
     }
 
-    // ── Deadline khusus ──
-    let deadlineTeks = "\n⏰ DEADLINE KHUSUS:\n";
-    if (!deadlineData || Object.keys(deadlineData).length === 0) {
-        deadlineTeks += "Tidak ada deadline khusus.\n";
-    } else {
-        for (const [tugas, tgl] of Object.entries(deadlineData)) {
-            deadlineTeks += `• ${tugas}: ${tgl}\n`;
-        }
-    }
+    // Deadline khusus
+    let deadlineTeks = "DEADLINE KHUSUS:\n";
+    const dl = Object.entries(deadlineData);
+    deadlineTeks += dl.length === 0
+        ? "tidak ada\n"
+        : dl.map(([t, tgl]) => `${t}: ${tgl}`).join('\n') + '\n';
 
-    return {
-        konteks: jadwalTeks + prTeks + deadlineTeks,
-        hariIni,
-        besok,
-        tanggal
-    };
+    cachedContext  = { konteks: jadwalTeks + prTeks + deadlineTeks, hariIni, besok, tanggal };
+    cacheTimestamp = now;
+    return cachedContext;
 }
 
 // ─────────────────────────────────────────────────────────────
-// RIWAYAT PERCAKAPAN per user (in-memory, reset saat bot restart)
+// RIWAYAT CHAT per user — maks 10 pesan
 // ─────────────────────────────────────────────────────────────
-const chatHistories = new Map(); // key: nomor WA, value: array history
+const chatHistories = new Map();
 
 function getHistory(userId) {
-    if (!chatHistories.has(userId)) {
-        chatHistories.set(userId, []);
-    }
+    if (!chatHistories.has(userId)) chatHistories.set(userId, []);
     return chatHistories.get(userId);
 }
 
-function addToHistory(userId, role, text) {
+function addToHistory(userId, role, content) {
     const history = getHistory(userId);
-    history.push({ role, parts: [{ text }] });
-    // Batasi history 20 pesan terakhir agar tidak membengkak
-    if (history.length > 20) history.splice(0, history.length - 20);
+    history.push({ role, content });
+    if (history.length > 10) history.splice(0, history.length - 10);
 }
 
 // ─────────────────────────────────────────────────────────────
-// MAIN — Fungsi askAI yang dipanggil dari handler.js
+// MAIN
 // ─────────────────────────────────────────────────────────────
 async function askAI(userMessage, userId = 'default') {
+    if (isRateLimited(userId)) {
+        return "Sabar dulu ya, jangan terlalu cepet ngetiknya 😅";
+    }
+
     try {
         const { konteks, hariIni, besok, tanggal } = buildContextData();
 
-        const systemPrompt = `Kamu adalah asisten bot WhatsApp kelas yang bernama SYTEAM-BOT. 
-Kamu ramah, santai, dan ngobrol kayak teman sekelas — pakai bahasa gaul Indonesia yang natural, tidak kaku.
-Kamu HARUS menjawab berdasarkan data nyata berikut ini. Jangan mengarang data.
-
-📌 INFO WAKTU SEKARANG:
-• Hari ini  : ${hariIni.charAt(0).toUpperCase() + hariIni.slice(1)}, ${tanggal}
-• Besok     : ${besok.charAt(0).toUpperCase() + besok.slice(1)}
+        const systemPrompt =
+`Kamu asisten bot WA kelas bernama SYTEAM-BOT. Jawab santai, singkat, pakai bahasa gaul Indonesia. Jangan terlalu formal.
+Hari ini: ${hariIni}, ${tanggal}. Besok: ${besok}.
+Jawab HANYA berdasarkan data ini, jangan ngarang data PR atau jadwal:
 
 ${konteks}
+Kalau data kosong bilang tidak ada. Kalau pertanyaan di luar data (pelajaran, umum, dll), jawab seperti biasa.`;
 
-ATURAN PENTING:
-1. Kalau ditanya PR/tugas hari tertentu, jawab berdasarkan data di atas.
-2. Kalau data kosong untuk hari itu, bilang "kosong / tidak ada tugas".
-3. Kalau ada deadline, sebutkan deadline-nya.
-4. Kalau ada link file, kasih tau ada filenya.
-5. Jawaban singkat, padat, santai — tidak perlu panjang-panjang kecuali diminta.
-6. Kalau ditanya hal di luar jadwal/PR (misal matematika, sains, dll), boleh jawab seperti biasa.`;
+        // Susun messages: system + history + pesan baru
+        const messages = [
+            { role: "system", content: systemPrompt },
+            ...getHistory(userId),
+            { role: "user", content: userMessage }
+        ];
 
-        const model = genAI.getGenerativeModel({
-            model: "gemini-2.0-flash-lite",
-            systemInstruction: systemPrompt,
-        });
+        const response = await axios.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            {
+                model: AI_MODEL,
+                messages,
+                max_tokens: 500,
+                temperature: 0.7,
+            },
+            {
+                headers: {
+                    "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://syteam-bot.railway.app",
+                    "X-Title": "SYTEAM-BOT"
+                },
+                timeout: 30000
+            }
+        );
 
-        // Ambil history percakapan user ini
-        const history = getHistory(userId);
-
-        const chat = model.startChat({ history });
-
-        const result = await chat.sendMessage(userMessage);
-        const responseText = result.response.text();
+        const reply = response.data.choices[0]?.message?.content?.trim();
+        if (!reply) throw new Error("Respons AI kosong");
 
         // Simpan ke history
         addToHistory(userId, 'user', userMessage);
-        addToHistory(userId, 'model', responseText);
+        addToHistory(userId, 'assistant', reply);
 
-        return responseText;
+        return reply;
 
     } catch (err) {
-        console.error("❌ Gemini AI Error:", err.message);
+        console.error("❌ OpenRouter AI Error:", err.response?.data || err.message);
+
+        if (err.response?.status === 429) {
+            return "Lagi rame nih, coba lagi sebentar ya! ⏳";
+        }
+        if (err.code === 'ECONNABORTED') {
+            return "Koneksi timeout, coba lagi ya! 🙏";
+        }
         return "Aduh, lagi ada gangguan nih. Coba lagi bentar ya! 🙏";
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// EXPORT
-// ─────────────────────────────────────────────────────────────
 module.exports = { askAI };
