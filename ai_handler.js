@@ -6,8 +6,6 @@ const path = require("path");
 // KONFIGURASI
 // ─────────────────────────────────────────────────────────────
 const OPENROUTER_API_KEY = "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";
-
-// Model gratis yang tersedia di OpenRouter (tidak perlu bayar)
 const AI_MODEL = "inclusionai/ling-2.6-1t:free";
 
 const VOLUME_PATH   = '/app/auth_info';
@@ -15,9 +13,10 @@ const PR_PATH       = path.join(VOLUME_PATH, 'pr.json');
 const DEADLINE_PATH = path.join(VOLUME_PATH, 'deadline.json');
 
 const { MAPEL_CONFIG, STRUKTUR_JADWAL, LABELS } = require('./pelajaran');
+const db = require('./data'); // Mengambil data dari db.js agar sinkron
 
 // ─────────────────────────────────────────────────────────────
-// RATE LIMITER — maks 1 request per 3 detik per user
+// RATE LIMITER
 // ─────────────────────────────────────────────────────────────
 const lastRequestTime = new Map();
 const RATE_LIMIT_MS = 3000;
@@ -31,18 +30,11 @@ function isRateLimited(userId) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// CACHE KONTEKS — rebuild tiap 5 menit
+// CACHE KONTEKS
 // ─────────────────────────────────────────────────────────────
 let cachedContext  = null;
 let cacheTimestamp = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000;
-
-function readJson(filePath) {
-    try {
-        if (!fs.existsSync(filePath)) return {};
-        return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    } catch { return {}; }
-}
 
 function getNamaHari(date = new Date()) {
     return ['minggu','senin','selasa','rabu','kamis','jumat','sabtu'][date.getDay()];
@@ -54,15 +46,33 @@ function getTanggalFormatted(date = new Date()) {
     });
 }
 
+// Helper untuk tanggal mingguan agar sinkron dengan scheduler
+function getWeekDates() {
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    const dayOfWeek = now.getDay();
+    const monday = new Date(now);
+    if (dayOfWeek === 6) monday.setDate(now.getDate() + 2);
+    else if (dayOfWeek === 0) monday.setDate(now.getDate() + 1);
+    else monday.setDate(now.getDate() - (dayOfWeek - 1));
+
+    const dates = [];
+    for (let i = 0; i < 5; i++) {
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + i);
+        dates.push(`${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`);
+    }
+    return dates;
+}
+
 function buildContextData() {
     const now = Date.now();
     if (cachedContext && (now - cacheTimestamp) < CACHE_TTL_MS) return cachedContext;
 
-    const prData       = readJson(PR_PATH);
-    const deadlineData = readJson(DEADLINE_PATH);
-    const hariIni      = getNamaHari();
-    const besok        = getNamaHari(new Date(now + 86400000));
-    const tanggal      = getTanggalFormatted();
+    const currentData = db.getAll() || {}; 
+    const dates = getWeekDates();
+    const hariIni = getNamaHari();
+    const besok = getNamaHari(new Date(now + 86400000));
+    const tanggal = getTanggalFormatted();
 
     // Jadwal ringkas
     let jadwalTeks = "JADWAL:\n";
@@ -70,29 +80,28 @@ function buildContextData() {
         jadwalTeks += `${hari}: ${mapelList.map(k => MAPEL_CONFIG[k] || k).join(', ')}\n`;
     }
 
-    // PR ringkas
+    // PR ringkas (Logika sinkron dengan scheduler manual)
     let prTeks = "PR/TUGAS:\n";
-    const hariUrut = ['senin','selasa','rabu','kamis','jumat'];
-    for (const hari of hariUrut) {
-        const tugasList = prData[hari];
-        if (!tugasList || Object.keys(tugasList).length === 0) {
-            prTeks += `${hari}: kosong\n`;
-            continue;
-        }
-        for (const [mapelKey, tugas] of Object.entries(tugasList)) {
-            const nama     = MAPEL_CONFIG[mapelKey] || mapelKey;
-            const deadline = tugas.deadline ? ` (deadline: ${tugas.deadline})` : '';
-            const file     = tugas.fileUrl ? ' [ada file]' : '';
-            prTeks += `${hari} - ${nama}: ${tugas.tugas}${deadline}${file}\n`;
+    const daysKey = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
+    const dayLabels = ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
+
+    for (let i = 0; i < 5; i++) {
+        const hariKey = daysKey[i];
+        const tugas = currentData[hariKey];
+        const tgl = dates[i];
+
+        if (!tugas || tugas === "" || tugas.includes("Belum ada tugas") || tugas.includes("Tidak ada PR")) {
+            prTeks += `${dayLabels[i]} (${tgl}): kosong\n`;
+        } else {
+            // Bersihkan teks dari format berlebih agar AI mudah baca
+            const cleanTugas = tugas.replace(/\n/g, " ").replace(/━━━━━━━━━━━━━━━━━━━━/g, "");
+            prTeks += `${dayLabels[i]} (${tgl}): ${cleanTugas}\n`;
         }
     }
 
     // Deadline khusus
     let deadlineTeks = "DEADLINE KHUSUS:\n";
-    const dl = Object.entries(deadlineData);
-    deadlineTeks += dl.length === 0
-        ? "tidak ada\n"
-        : dl.map(([t, tgl]) => `${t}: ${tgl}`).join('\n') + '\n';
+    deadlineTeks += currentData.deadline || "tidak ada\n";
 
     cachedContext  = { konteks: jadwalTeks + prTeks + deadlineTeks, hariIni, besok, tanggal };
     cacheTimestamp = now;
@@ -100,7 +109,7 @@ function buildContextData() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// RIWAYAT CHAT per user — maks 10 pesan
+// RIWAYAT CHAT
 // ─────────────────────────────────────────────────────────────
 const chatHistories = new Map();
 
@@ -134,7 +143,6 @@ Jawab HANYA berdasarkan data ini, jangan ngarang data PR atau jadwal:
 ${konteks}
 Kalau data kosong bilang tidak ada. Kalau pertanyaan di luar data (pelajaran, umum, dll), jawab seperti biasa.`;
 
-        // Susun messages: system + history + pesan baru
         const messages = [
             { role: "system", content: systemPrompt },
             ...getHistory(userId),
@@ -163,7 +171,6 @@ Kalau data kosong bilang tidak ada. Kalau pertanyaan di luar data (pelajaran, um
         const reply = response.data.choices[0]?.message?.content?.trim();
         if (!reply) throw new Error("Respons AI kosong");
 
-        // Simpan ke history
         addToHistory(userId, 'user', userMessage);
         addToHistory(userId, 'assistant', reply);
 
@@ -171,13 +178,8 @@ Kalau data kosong bilang tidak ada. Kalau pertanyaan di luar data (pelajaran, um
 
     } catch (err) {
         console.error("❌ OpenRouter AI Error:", err.response?.data || err.message);
-
-        if (err.response?.status === 429) {
-            return "Lagi rame nih, coba lagi sebentar ya! ⏳";
-        }
-        if (err.code === 'ECONNABORTED') {
-            return "Koneksi timeout, coba lagi ya! 🙏";
-        }
+        if (err.response?.status === 429) return "Lagi rame nih, coba lagi sebentar ya! ⏳";
+        if (err.code === 'ECONNABORTED') return "Koneksi timeout, coba lagi ya! 🙏";
         return "Aduh, lagi ada gangguan nih. Coba lagi bentar ya! 🙏";
     }
 }
