@@ -13,8 +13,47 @@ const DEADLINE_PATH = path.join(VOLUME_PATH, 'deadline.json');
 const { MAPEL_CONFIG, STRUKTUR_JADWAL, LABELS } = require('./pelajaran');
 const db = require('./data');
 
-// Init Gemini (ambil API key dari env GEMINI_API_KEY)
 const ai = new GoogleGenAI({ apiKey: "AIzaSyABFSBgYam0k85Klg5eO3woNX0-X3UYwXU" });
+
+// ─────────────────────────────────────────────────────────────
+// HELPER TIMEZONE JAKARTA
+// ─────────────────────────────────────────────────────────────
+
+// Selalu kembalikan Date sekarang dalam konteks WIB
+function getNowJakarta() {
+    return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+}
+
+function getNamaHari(date) {
+    // date harus sudah di-convert ke WIB sebelum masuk sini
+    return ['minggu','senin','selasa','rabu','kamis','jumat','sabtu'][date.getDay()];
+}
+
+function getTanggalFormatted(date) {
+    // Format langsung dari date yang sudah WIB
+    return date.toLocaleDateString('id-ID', {
+        weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
+        timeZone: 'Asia/Jakarta'
+    });
+}
+
+function getWeekDates() {
+    const now = getNowJakarta();
+    const dayOfWeek = now.getDay();
+    const monday = new Date(now);
+
+    if (dayOfWeek === 6) monday.setDate(now.getDate() + 2);      // Sabtu → Senin depan
+    else if (dayOfWeek === 0) monday.setDate(now.getDate() + 1); // Minggu → Senin depan
+    else monday.setDate(now.getDate() - (dayOfWeek - 1));        // Weekday → Senin minggu ini
+
+    const dates = [];
+    for (let i = 0; i < 5; i++) {
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + i);
+        dates.push(`${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`);
+    }
+    return dates;
+}
 
 // ─────────────────────────────────────────────────────────────
 // RATE LIMITER
@@ -31,77 +70,62 @@ function isRateLimited(userId) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// CACHE KONTEKS
+// CACHE KONTEKS (hanya untuk data PR/jadwal dari DB)
+// Tanggal/hari TIDAK dicache — selalu real-time
 // ─────────────────────────────────────────────────────────────
-let cachedContext  = null;
-let cacheTimestamp = 0;
-const CACHE_TTL_MS = 5 * 60 * 1000;
-
-function getNamaHari(date = new Date()) {
-    return ['minggu','senin','selasa','rabu','kamis','jumat','sabtu'][date.getDay()];
-}
-
-function getTanggalFormatted(date = new Date()) {
-    return date.toLocaleDateString('id-ID', {
-        weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
-    });
-}
-
-function getWeekDates() {
-    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
-    const dayOfWeek = now.getDay();
-    const monday = new Date(now);
-    if (dayOfWeek === 6) monday.setDate(now.getDate() + 2);
-    else if (dayOfWeek === 0) monday.setDate(now.getDate() + 1);
-    else monday.setDate(now.getDate() - (dayOfWeek - 1));
-
-    const dates = [];
-    for (let i = 0; i < 5; i++) {
-        const d = new Date(monday);
-        d.setDate(monday.getDate() + i);
-        dates.push(`${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`);
-    }
-    return dates;
-}
+let cachedPRJadwal  = null;
+let cacheTimestamp  = 0;
+const CACHE_TTL_MS  = 5 * 60 * 1000;
 
 function buildContextData() {
     const now = Date.now();
-    if (cachedContext && (now - cacheTimestamp) < CACHE_TTL_MS) return cachedContext;
 
-    const currentData = db.getAll() || {};
-    const dates = getWeekDates();
-    const hariIni = getNamaHari();
-    const besok = getNamaHari(new Date(now + 86400000));
-    const tanggal = getTanggalFormatted();
+    // ── Tanggal & hari selalu dihitung ulang, TIDAK ikut cache ──
+    const nowJkt  = getNowJakarta();
 
-    let jadwalTeks = "JADWAL:\n";
-    for (const [hari, mapelList] of Object.entries(STRUKTUR_JADWAL)) {
-        jadwalTeks += `${hari}: ${mapelList.map(k => MAPEL_CONFIG[k] || k).join(', ')}\n`;
-    }
+    // Besok dalam WIB
+    const besokJkt = getNowJakarta();
+    besokJkt.setDate(besokJkt.getDate() + 1);
 
-    let prTeks = "PR/TUGAS:\n";
-    const daysKey   = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
-    const dayLabels = ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
+    const hariIni = getNamaHari(nowJkt);
+    const besok   = getNamaHari(besokJkt);
+    const tanggal = getTanggalFormatted(nowJkt);
 
-    for (let i = 0; i < 5; i++) {
-        const hariKey = daysKey[i];
-        const tugas   = currentData[hariKey];
-        const tgl     = dates[i];
+    // ── PR & Jadwal boleh dicache ──
+    if (!cachedPRJadwal || (now - cacheTimestamp) >= CACHE_TTL_MS) {
+        const currentData = db.getAll() || {};
+        const dates = getWeekDates();
 
-        if (!tugas || tugas === "" || tugas.includes("Belum ada tugas") || tugas.includes("Tidak ada PR")) {
-            prTeks += `${dayLabels[i]} (${tgl}): kosong\n`;
-        } else {
-            const cleanTugas = tugas.replace(/\n/g, " ").replace(/━━━━━━━━━━━━━━━━━━━━/g, "");
-            prTeks += `${dayLabels[i]} (${tgl}): ${cleanTugas}\n`;
+        let jadwalTeks = "JADWAL:\n";
+        for (const [hari, mapelList] of Object.entries(STRUKTUR_JADWAL)) {
+            jadwalTeks += `${hari}: ${mapelList.map(k => MAPEL_CONFIG[k] || k).join(', ')}\n`;
         }
+
+        let prTeks = "PR/TUGAS:\n";
+        const daysKey   = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
+        const dayLabels = ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
+
+        for (let i = 0; i < 5; i++) {
+            const hariKey = daysKey[i];
+            const tugas   = currentData[hariKey];
+            const tgl     = dates[i];
+
+            if (!tugas || tugas === "" || tugas.includes("Belum ada tugas") || tugas.includes("Tidak ada PR")) {
+                prTeks += `${dayLabels[i]} (${tgl}): kosong\n`;
+            } else {
+                const cleanTugas = tugas.replace(/\n/g, " ").replace(/━━━━━━━━━━━━━━━━━━━━/g, "");
+                prTeks += `${dayLabels[i]} (${tgl}): ${cleanTugas}\n`;
+            }
+        }
+
+        let deadlineTeks = "DEADLINE KHUSUS:\n";
+        deadlineTeks += currentData.deadline || "tidak ada\n";
+
+        cachedPRJadwal = jadwalTeks + prTeks + deadlineTeks;
+        cacheTimestamp = now;
     }
 
-    let deadlineTeks = "DEADLINE KHUSUS:\n";
-    deadlineTeks += currentData.deadline || "tidak ada\n";
-
-    cachedContext  = { konteks: jadwalTeks + prTeks + deadlineTeks, hariIni, besok, tanggal };
-    cacheTimestamp = now;
-    return cachedContext;
+    return { konteks: cachedPRJadwal, hariIni, besok, tanggal };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -129,6 +153,7 @@ async function askAI(userMessage, userId = 'default') {
     }
 
     try {
+        // Selalu build fresh — tanggal/hari real-time, PR/jadwal dari cache
         const { konteks, hariIni, besok, tanggal } = buildContextData();
 
         const systemPrompt =
@@ -139,7 +164,6 @@ Jawab HANYA berdasarkan data ini, jangan ngarang data PR atau jadwal:
 ${konteks}
 Kalau data kosong bilang tidak ada. Kalau pertanyaan di luar data (pelajaran, umum, dll), jawab seperti biasa.`;
 
-        // Gemini pakai format { role, parts } — history sudah dalam format ini
         const history = getHistory(userId);
 
         const chat = ai.chats.create({
@@ -160,7 +184,7 @@ Kalau data kosong bilang tidak ada. Kalau pertanyaan di luar data (pelajaran, um
         if (!reply) throw new Error("Respons AI kosong");
 
         addToHistory(userId, 'user', userMessage);
-        addToHistory(userId, 'model', reply); // Gemini pakai 'model', bukan 'assistant'
+        addToHistory(userId, 'model', reply);
 
         return reply;
 
