@@ -144,7 +144,7 @@ ATURAN PENTING:
 6. Kalau ditanya hal di luar jadwal/PR (misal matematika, sains, dll), boleh jawab seperti biasa.`;
 
         const model = genAI.getGenerativeModel({
-            model: "gemini-2.0-flash",
+            model: "gemini-2.0-flash-lite",
             systemInstruction: systemPrompt,
         });
 
