@@ -35,7 +35,6 @@ function isRateLimited(userId) {
     return false;
 }
 
-// FUNGSI KHUSUS ADMIN UNTUK RISET LIMIT
 function resetLimit(userId) {
     if (lastRequestTime.has(userId)) {
         lastRequestTime.delete(userId);
@@ -49,7 +48,7 @@ function resetLimit(userId) {
 // ─────────────────────────────────────────────────────────────
 let cachedContext  = null;
 let cacheTimestamp = 0;
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 2000; // Gue turunin ke 2 detik biar data di data.json langsung update ke AI
 
 function getNowWIB() {
     return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
@@ -86,7 +85,7 @@ function buildContextData() {
     const nowWIB = getNowWIB();
     const nowTs = nowWIB.getTime();
 
-    // Selalu ambil data terbaru dari db
+    // PENTING: Ambil data fresh dari db.getAll() sebelum cek cache
     const currentData = db.getAll() || {};
 
     if (cachedContext && (nowTs - cacheTimestamp) < CACHE_TTL_MS) return cachedContext;
@@ -112,15 +111,15 @@ function buildContextData() {
         const tgl     = dates[i];
 
         if (!tugas || tugas === "" || tugas.includes("Belum ada tugas") || tugas.includes("Tidak ada PR")) {
-            prTeks += `• ${dayLabels[i]} (${tgl}): Aman, gak ada tugas.\n`;
+            prTeks += `• ${dayLabels[i]} (${tgl}): Kosong ngab.\n`;
         } else {
-            const cleanTugas = tugas.replace(/\n/g, " ").replace(/━━━━━━━━━━━━━━━━━━━━/g, "").trim();
+            const cleanTugas = tugas.toString().replace(/\n/g, " ").replace(/━━━━━━━━━━━━━━━━━━━━/g, "").trim();
             prTeks += `• ${dayLabels[i]} (${tgl}): ${cleanTugas}\n`;
         }
     }
 
-    let deadlineTeks = "\nDEADLINE PENTING:\n";
-    deadlineTeks += currentData.deadline || "Gak ada deadline mendesak, santai aja.";
+    let deadlineTeks = "\nDEADLINE KHUSUS:\n";
+    deadlineTeks += currentData.deadline || "Gak ada deadline, aman.";
 
     cachedContext  = { konteks: jadwalTeks + prTeks + deadlineTeks, hariIni, besok, tanggal };
     cacheTimestamp = nowTs;
@@ -146,24 +145,23 @@ function addToHistory(userId, role, content) {
 // ─────────────────────────────────────────────────────────────
 async function askAI(userMessage, userId = 'default') {
     if (isRateLimited(userId)) {
-        return "Sabar ngab, jarinya cepet amat ngetiknya 😅. Tunggu bentar lagi ya!";
+        return "Sabar ngab, jangan spam 😅. Jeda 5 detik ya!";
     }
 
     try {
         const { konteks, hariIni, besok, tanggal } = buildContextData();
 
-        // System Prompt dibikin lebih gaul dan "tongkrongan"
         const systemPrompt =
-`Lo adalah SYTEAM-BOT, asisten asik buat anak-anak kelas.
-Gaya bicara: Gaul Jakarta, santai, pake istilah kayak 'ngab', 'gas', 'aman', 'mabar', 'gercep'. 
-Jangan kaku kayak bot CS bank. Jangan pake 'Saya/Anda', pake 'Gue/Lo' atau 'Kalian' aja.
+`Lo itu SYTEAM-BOT, asisten kelas paling gokil.
+Gaya ngomong: Santai, pake Gue/Lo, bahasanya bahasa tongkrongan (ngab, gas, mabar, aman, gercep, spill). 
+Kalo ada yang nanya PR/Jadwal, jawab yang lengkap tapi tetep asik, jangan kaku kayak surat undangan.
 
-Info Waktu: Hari ini ${hariIni}, ${tanggal}. Besok itu hari ${besok}.
-Data Kelas (PENTING: Jawab sesuai data ini, jangan ngaco!):
+Waktu Sekarang: ${hariIni}, ${tanggal}. Besok itu ${besok}.
+Data Real-time (Pake ini buat jawab PR/Jadwal):
 ${konteks}
 
-Kalo ditanya PR atau Jadwal tapi datanya kosong, bilang "Lagi kosong nih, aman buat mabar" atau sejenisnya. 
-Kalo nanya di luar itu (curhat, nanya tugas umum), ladenin aja sesantai mungkin tapi tetep singkat.`;
+Kalo datanya kosong, bilang "Aman ngab, gak ada beban hari ini" atau sejenisnya.
+Kalo nanya di luar data sekolah, jawab aja sekenanya sesama temen tongkrongan.`;
 
         const history = getHistory(userId);
 
@@ -172,7 +170,7 @@ Kalo nanya di luar itu (curhat, nanya tugas umum), ladenin aja sesantai mungkin 
             config: {
                 systemInstruction: systemPrompt,
                 maxOutputTokens: 500,
-                temperature: 0.8, // Sedikit lebih kreatif biar gak kaku
+                temperature: 0.85, 
             },
             history: history,
         });
@@ -191,7 +189,7 @@ Kalo nanya di luar itu (curhat, nanya tugas umum), ladenin aja sesantai mungkin 
 
     } catch (err) {
         console.error("❌ Gemini AI Error:", err.message || err);
-        return "Aduh, otak gue lagi nge-lag nih ngab. Coba tanya lagi bentar ya! 🙏";
+        return "Aduh, otak gue lagi korslet ngab. Coba lagi bentar ya! 🙏";
     }
 }
 
