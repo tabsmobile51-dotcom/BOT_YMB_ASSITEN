@@ -173,41 +173,29 @@ function scheduleAutoReset() {
 scheduleAutoReset();
 
 // ─────────────────────────────────────────────────────────────
-// RESET PR OTOMATIS TIAP SABTU JAM 00.00 WIB  ← TAMBAHAN BARU
+// RESET PR OTOMATIS TIAP SABTU JAM 00.00 WIB
 // ─────────────────────────────────────────────────────────────
 function scheduleWeeklyPRReset() {
   function msUntilSabtuMidnight() {
     const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
-    const day = now.getDay(); // 0=minggu, 1=senin, ..., 6=sabtu
-
-    // Hitung berapa hari lagi ke Sabtu
-    // Kalau hari ini Sabtu (6), tunggu 7 hari lagi (Sabtu depan)
+    const day = now.getDay();
     const daysUntilSat = day === 6 ? 7 : (6 - day);
-
     const nextSat = new Date(now);
     nextSat.setDate(now.getDate() + daysUntilSat);
-    nextSat.setHours(0, 0, 0, 0); // jam 00.00 tepat
-
+    nextSat.setHours(0, 0, 0, 0);
     return nextSat.getTime() - now.getTime();
   }
 
   function doWeeklyReset() {
     console.log("📅 Weekly reset PR & deadline jam 00.00 Sabtu WIB...");
-
-    // Reset semua PR + deadline pakai db.resetSemua() dari data.js
     const berhasil = db.resetSemua();
-
     if (berhasil) {
       console.log("✅ PR & deadline berhasil di-reset ke default!");
     } else {
       console.log("❌ Gagal reset PR, cek error di data.js");
     }
-
-    // Invalidate cache supaya buildContextData() langsung baca data baru
     cachedContext  = null;
     cacheTimestamp = 0;
-
-    // Jadwalkan lagi untuk Sabtu depan
     const delay = msUntilSabtuMidnight();
     console.log(`📅 Weekly PR reset berikutnya dijadwalkan ${Math.round(delay / 3600000)} jam lagi`);
     setTimeout(doWeeklyReset, delay);
@@ -268,21 +256,47 @@ function buildContextData() {
   }
 
   let prTeks = "PR/TUGAS:\n";
-  const daysKey   = ['senin','selasa','rabu','kamis','jumat'];
-  const dayLabels = ['SENIN','SELASA','RABU','KAMIS','JUMAT'];
+  const daysKey      = ['senin','selasa','rabu','kamis','jumat'];
+  const dayLabels    = ['SENIN','SELASA','RABU','KAMIS','JUMAT'];
+  const dayLabelsSmall = ['Senin','Selasa','Rabu','Kamis','Jumat']; // ← TAMBAHAN
 
   for (let i = 0; i < 5; i++) {
     const tugas = currentData[daysKey[i]];
     if (!tugas || tugas === "" || tugas.includes("Belum ada tugas") || tugas.includes("Tidak ada PR")) {
       prTeks += `${dayLabels[i]} (${dates[i]}): kosong\n`;
     } else {
-      const cleanTugas = tugas.replace(/\n/g," ").replace(/━━━━━━━━━━━━━━━━━━━━/g,"");
+      // ← TAMBAHAN: replace tanggal deadline lama jadi tanggal minggu aktif
+      const cleanTugas = tugas
+        .replace(/\n/g, " ")
+        .replace(/━━━━━━━━━━━━━━━━━━━━/g, "")
+        .replace(
+          /⏰ Deadline: \w+, \d{2}\/\d{2}\/\d{4}/g,
+          `⏰ Deadline: ${dayLabelsSmall[i]}, ${dates[i]}`
+        );
       prTeks += `${dayLabels[i]} (${dates[i]}): ${cleanTugas}\n`;
     }
   }
 
+  // ← TAMBAHAN: deadline khusus filter yang udah lewat hari ini
   let deadlineTeks = "DEADLINE KHUSUS:\n";
-  deadlineTeks += currentData.deadline || "tidak ada\n";
+  try {
+    const dlList = JSON.parse(currentData.deadline || "[]");
+    const nowWIB = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    nowWIB.setHours(0, 0, 0, 0);
+    const aktif = dlList.filter(item => new Date(item.deadline) >= nowWIB);
+    if (aktif.length === 0) {
+      deadlineTeks += "tidak ada\n";
+    } else {
+      aktif.forEach(item => {
+        const tgl = new Date(item.deadline).toLocaleDateString('id-ID', {
+          day: '2-digit', month: '2-digit', year: 'numeric'
+        });
+        deadlineTeks += `- ${item.task} (deadline: ${tgl})\n`;
+      });
+    }
+  } catch {
+    deadlineTeks += currentData.deadline || "tidak ada\n";
+  }
 
   cachedContext  = { konteks: jadwalTeks + prTeks + deadlineTeks, hariIni, besok, tanggal };
   cacheTimestamp = now;
@@ -502,4 +516,6 @@ Kalo data kosong bilang gak ada. Kalo pertanyaan di luar data (pelajaran umum, n
 // ─────────────────────────────────────────────────────────────
 // EXPORTS
 // ─────────────────────────────────────────────────────────────
-module.exports = { askAI, handleAdminCommand, loadRateConfig, saveRateConfig, loadUsageStats };
+module.exports = { askAI, handleAdminCommand, loadRateConfig, saveRateConfig, loadUsageStats,
+  invalidateCache: () => { cachedContext = null; cacheTimestamp = 0; }
+};
