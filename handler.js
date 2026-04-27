@@ -26,7 +26,10 @@ const ALL_VALID_COMMANDS = [
     'cekbot', 'p', 'tes', 'list_pr', 'pr', 'tugas_lama', 'deadline', 'dl',
     'bantuan', 'menu', 'help', 'start', 'jadwal', 'jwl', 'lapor', 'lapor_pr',
     'update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru',
-    'update_deadline'
+    'update_deadline',
+    // ↓ AI admin commands
+    'ai-setlimit', 'ai-sethour', 'ai-setday', 'ai-ban', 'ai-unban',
+    'ai-vip', 'ai-unvip', 'ai-pause', 'ai-resume', 'ai-reset', 'ai-stats', 'ai-config'
 ];
 
 function getClosestCommand(cmd) {
@@ -159,12 +162,20 @@ async function handleMessages(sock, m, botConfig, utils) {
         // --- ROUTING COMMAND ---
         const userCmds = ['cekbot', 'p', 'tes', 'list_pr', 'pr', 'tugas_lama', 'deadline', 'dl', 'jadwal', 'jwl', 'lapor', 'lapor_pr'];
         const adminCmds = ['update', 'update_list_pr', 'hapus', 'info', 'reset-bot', 'cek_db', 'jadwal_baru', 'update_deadline'];
+        // ↓ AI admin commands
+        const aiAdminCmds = ['ai-setlimit', 'ai-sethour', 'ai-setday', 'ai-ban', 'ai-unban',
+            'ai-vip', 'ai-unvip', 'ai-pause', 'ai-resume', 'ai-reset', 'ai-stats', 'ai-config'];
 
         if (userCmds.includes(cmd)) {
             await handleUserCommands(sock, msg, '!' + cmd, args, utils);
         } else if (adminCmds.includes(cmd)) {
             if (!isAdmin) return await sock.sendMessage(sender, { text: nonAdminMsg });
             await handleAdminCommands(sock, msg, '!' + cmd, args, utils, body, nonAdminMsg);
+        // ↓ TAMBAHAN BARU — handle AI admin commands
+        } else if (aiAdminCmds.includes(cmd)) {
+            if (!isAdmin) return await sock.sendMessage(sender, { text: nonAdminMsg });
+            const aiReply = await askAI(body, sender);
+            return await sock.sendMessage(sender, { text: aiReply }, { quoted: msg });
         } else {
             // ✅ Typo detection pakai Levenshtein Distance
             const suggestion = getClosestCommand(cmd);
