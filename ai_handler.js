@@ -10,7 +10,7 @@ const DEADLINE_PATH = path.join(VOLUME_PATH, 'deadline.json');
 const { MAPEL_CONFIG, STRUKTUR_JADWAL, LABELS } = require('./pelajaran');
 const db = require('./data');
 // Init Gemini (ambil API key dari env GEMINI_API_KEY)
-const ai = new GoogleGenAI({ apiKey: "AIzaSyABFSBgYam0k85Klg5eO3woNX0-X3UYwXU" });
+const ai = new GoogleGenAI({ apiKey: "AIzaSyDz9A2UTEVQULc7b4VBHE9q751Ak6hNgQU" });
 // ─────────────────────────────────────────────────────────────
 // RATE LIMITER (Reset Setiap Jam 00:00)
 // ─────────────────────────────────────────────────────────────
