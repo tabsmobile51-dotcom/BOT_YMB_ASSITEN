@@ -7,9 +7,9 @@ const path = require("path");
 // ─────────────────────────────────────────────────────────────
 const OPENROUTER_API_KEY = "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";
 const AI_MODEL = "inclusionai/ling-2.6-1t:free";
-const VOLUME_PATH   = '/app/auth_info';
-const PR_PATH       = path.join(VOLUME_PATH, 'pr.json');
-const DEADLINE_PATH = path.join(VOLUME_PATH, 'deadline.json');
+const VOLUME_PATH      = '/app/auth_info';
+const PR_PATH          = path.join(VOLUME_PATH, 'pr.json');
+const DEADLINE_PATH    = path.join(VOLUME_PATH, 'deadline.json');
 const RATE_CONFIG_PATH = path.join(VOLUME_PATH, 'rate_config.json');
 const USAGE_STATS_PATH = path.join(VOLUME_PATH, 'usage_stats.json');
 
@@ -17,16 +17,16 @@ const { MAPEL_CONFIG, STRUKTUR_JADWAL, LABELS } = require('./pelajaran');
 const db = require('./data');
 
 // ─────────────────────────────────────────────────────────────
-// RATE LIMIT CONFIG (bisa diubah admin)
+// RATE LIMIT CONFIG
 // ─────────────────────────────────────────────────────────────
 const DEFAULT_RATE_CONFIG = {
-  globalLimitMs: 3000,          // Jeda minimum antar pesan (ms)
-  maxRequestsPerHour: 30,       // Maks request per user per jam
-  maxRequestsPerDay: 300,       // Maks request per user per hari
-  adminNumbers: ["6289531549103"],             // Nomor admin (misal: ["628123456789"])
-  bannedUsers: [],              // User yang diblokir
-  vipUsers: [],                 // VIP = limit 2x lipat
-  globalPause: false,           // Pause semua AI sementara
+  globalLimitMs: 3000,
+  maxRequestsPerHour: 30,
+  maxRequestsPerDay: 300,
+  adminNumbers: ["6289531549103"],
+  bannedUsers: [],
+  vipUsers: [],
+  globalPause: false,
 };
 
 function loadRateConfig() {
@@ -46,7 +46,7 @@ function saveRateConfig(config) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// USAGE STATS (untuk riset & monitoring)
+// USAGE STATS
 // ─────────────────────────────────────────────────────────────
 function loadUsageStats() {
   try {
@@ -67,56 +67,42 @@ function saveUsageStats(stats) {
 function recordUsage(userId) {
   const stats = loadUsageStats();
   const now = new Date();
-  const dateKey = now.toISOString().slice(0, 10);         // "2025-01-15"
-  const hourKey = `${dateKey}-${now.getHours()}`;          // "2025-01-15-14"
+  const dateKey = now.toISOString().slice(0, 10);
+  const hourKey = `${dateKey}-${now.getHours()}`;
 
-  // Per user
   if (!stats.users[userId]) stats.users[userId] = { total: 0, today: 0, thisHour: 0, lastSeen: null };
   stats.users[userId].total++;
   stats.users[userId].today++;
   stats.users[userId].thisHour++;
   stats.users[userId].lastSeen = now.toISOString();
 
-  // Per hari
-  stats.daily[dateKey] = (stats.daily[dateKey] || 0) + 1;
-
-  // Per jam
+  stats.daily[dateKey]  = (stats.daily[dateKey]  || 0) + 1;
   stats.hourly[hourKey] = (stats.hourly[hourKey] || 0) + 1;
-
-  // Total
   stats.totalRequests++;
 
   saveUsageStats(stats);
 }
 
 // ─────────────────────────────────────────────────────────────
-// RATE LIMITER (ditingkatkan)
+// RATE LIMITER
 // ─────────────────────────────────────────────────────────────
-const lastRequestTime = new Map();
-const requestCountHour = new Map(); // { userId: { count, windowStart } }
-const requestCountDay  = new Map(); // { userId: { count, dayStart } }
+const lastRequestTime  = new Map();
+const requestCountHour = new Map();
+const requestCountDay  = new Map();
 
 function isRateLimited(userId) {
   const config = loadRateConfig();
   const now = Date.now();
 
-  // Cek banned
-  if (config.bannedUsers.includes(userId)) return "banned";
-
-  // Cek global pause
-  if (config.globalPause) return "paused";
-
-  // Admin bypass semua limit
+  if (config.bannedUsers.includes(userId))  return "banned";
+  if (config.globalPause)                   return "paused";
   if (config.adminNumbers.includes(userId)) return false;
 
-  // Multiplier untuk VIP
   const multiplier = config.vipUsers.includes(userId) ? 2 : 1;
 
-  // Cek jeda minimum
   const last = lastRequestTime.get(userId) || 0;
   if (now - last < config.globalLimitMs) return "toofast";
 
-  // Cek limit per jam
   const hourData = requestCountHour.get(userId) || { count: 0, windowStart: now };
   if (now - hourData.windowStart > 3600000) {
     requestCountHour.set(userId, { count: 1, windowStart: now });
@@ -126,11 +112,8 @@ function isRateLimited(userId) {
     requestCountHour.set(userId, hourData);
   }
 
-  // Cek limit per hari
   const dayData = requestCountDay.get(userId) || { count: 0, dayStart: now };
-  const dayStart = new Date(now);
-  dayStart.setHours(0, 0, 0, 0);
-  if (now < dayStart.getTime() || !dayData.dayStart || new Date(dayData.dayStart).toDateString() !== new Date(now).toDateString()) {
+  if (!dayData.dayStart || new Date(dayData.dayStart).toDateString() !== new Date(now).toDateString()) {
     requestCountDay.set(userId, { count: 1, dayStart: now });
   } else {
     if (dayData.count >= config.maxRequestsPerDay * multiplier) return "daylimit";
@@ -143,32 +126,30 @@ function isRateLimited(userId) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// RESET OTOMATIS JAM 00.00 (Midnight Reset)
+// RESET OTOMATIS JAM 00.00
 // ─────────────────────────────────────────────────────────────
 function scheduleAutoReset() {
   function msUntilMidnight() {
     const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
     const midnight = new Date(now);
-    midnight.setHours(24, 0, 0, 0); // Tengah malam berikutnya
+    midnight.setHours(24, 0, 0, 0);
     return midnight.getTime() - now.getTime();
   }
 
   function doReset() {
     console.log("🔄 Auto-reset AI usage stats jam 00.00 WIB...");
 
-    // Reset counter in-memory
     requestCountDay.clear();
     requestCountHour.clear();
     lastRequestTime.clear();
-    chatHistories.clear(); // Bersihkan juga riwayat chat
+    chatHistories.clear();
 
-    // Reset stats harian per user (tapi simpan total)
     const stats = loadUsageStats();
     for (const uid in stats.users) {
-      stats.users[uid].today = 0;
+      stats.users[uid].today    = 0;
       stats.users[uid].thisHour = 0;
     }
-    // Hapus data hourly & daily yang lebih dari 7 hari
+
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
     for (const key in stats.hourly) {
@@ -181,8 +162,6 @@ function scheduleAutoReset() {
     saveUsageStats(stats);
 
     console.log("✅ Reset selesai!");
-
-    // Jadwal ulang untuk keesokan harinya
     setTimeout(doReset, msUntilMidnight());
   }
 
@@ -191,7 +170,6 @@ function scheduleAutoReset() {
   setTimeout(doReset, delay);
 }
 
-// Jalankan scheduler saat modul dimuat
 scheduleAutoReset();
 
 // ─────────────────────────────────────────────────────────────
@@ -213,15 +191,15 @@ function getWeekDates() {
   const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
   const dayOfWeek = now.getDay();
   const monday = new Date(now);
-  if (dayOfWeek === 6) monday.setDate(now.getDate() + 2);
+  if (dayOfWeek === 6)      monday.setDate(now.getDate() + 2);
   else if (dayOfWeek === 0) monday.setDate(now.getDate() + 1);
-  else monday.setDate(now.getDate() - (dayOfWeek - 1));
+  else                      monday.setDate(now.getDate() - (dayOfWeek - 1));
 
   const dates = [];
   for (let i = 0; i < 5; i++) {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
-    dates.push(`${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`);
+    dates.push(`${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`);
   }
   return dates;
 }
@@ -231,9 +209,9 @@ function buildContextData() {
   if (cachedContext && (now - cacheTimestamp) < CACHE_TTL_MS) return cachedContext;
 
   const currentData = db.getAll() || {};
-  const dates = getWeekDates();
+  const dates   = getWeekDates();
   const hariIni = getNamaHari();
-  const besok = getNamaHari(new Date(now + 86400000));
+  const besok   = getNamaHari(new Date(now + 86400000));
   const tanggal = getTanggalFormatted();
 
   let jadwalTeks = "JADWAL:\n";
@@ -242,19 +220,16 @@ function buildContextData() {
   }
 
   let prTeks = "PR/TUGAS:\n";
-  const daysKey   = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
-  const dayLabels = ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
+  const daysKey   = ['senin','selasa','rabu','kamis','jumat'];
+  const dayLabels = ['SENIN','SELASA','RABU','KAMIS','JUMAT'];
 
   for (let i = 0; i < 5; i++) {
-    const hariKey = daysKey[i];
-    const tugas = currentData[hariKey];
-    const tgl = dates[i];
-
+    const tugas = currentData[daysKey[i]];
     if (!tugas || tugas === "" || tugas.includes("Belum ada tugas") || tugas.includes("Tidak ada PR")) {
-      prTeks += `${dayLabels[i]} (${tgl}): kosong\n`;
+      prTeks += `${dayLabels[i]} (${dates[i]}): kosong\n`;
     } else {
-      const cleanTugas = tugas.replace(/\n/g, " ").replace(/━━━━━━━━━━━━━━━━━━━━/g, "");
-      prTeks += `${dayLabels[i]} (${tgl}): ${cleanTugas}\n`;
+      const cleanTugas = tugas.replace(/\n/g," ").replace(/━━━━━━━━━━━━━━━━━━━━/g,"");
+      prTeks += `${dayLabels[i]} (${dates[i]}): ${cleanTugas}\n`;
     }
   }
 
@@ -284,97 +259,85 @@ function addToHistory(userId, role, content) {
 // ─────────────────────────────────────────────────────────────
 // ADMIN COMMANDS
 // ─────────────────────────────────────────────────────────────
-
-/**
- * Cek apakah pesan adalah perintah admin AI
- * @param {string} userId - Nomor WA pengirim
- * @param {string} message - Pesan yang dikirim
- * @returns {string|null} - Balasan jika command valid, null jika bukan command
- */
 function handleAdminCommand(userId, message) {
   const config = loadRateConfig();
-
-  // Hanya admin yang bisa pakai command ini
   if (!config.adminNumbers.includes(userId)) return null;
 
-  const msg = message.trim().toLowerCase();
+  const msg   = message.trim().toLowerCase();
   const parts = message.trim().split(" ");
 
-  // !ai-setlimit [ms] → ubah jeda minimum
   if (msg.startsWith("!ai-setlimit ")) {
     const val = parseInt(parts[1]);
-    if (isNaN(val) || val < 500) return "❌ Minimal 500ms ya bos";
+    if (isNaN(val) || val < 500) return "❌ Bro minimal 500ms dong, masa mau secepet itu 💀";
     config.globalLimitMs = val;
     saveRateConfig(config);
-    return `✅ Jeda minimum diubah ke ${val}ms`;
+    return `✅ Oke bos, jeda minimum gue ubah jadi ${val}ms sekarang`;
   }
 
-  // !ai-sethour [n] → ubah max per jam
   if (msg.startsWith("!ai-sethour ")) {
     const val = parseInt(parts[1]);
-    if (isNaN(val) || val < 1) return "❌ Minimal 1";
+    if (isNaN(val) || val < 1) return "❌ Minimal 1 dong bro, masa 0 💀";
     config.maxRequestsPerHour = val;
     saveRateConfig(config);
-    return `✅ Max per jam diubah ke ${val}x`;
+    return `✅ Siap! Sekarang max per jam jadi ${val}x, gue catat ya`;
   }
 
-  // !ai-setday [n] → ubah max per hari
   if (msg.startsWith("!ai-setday ")) {
     const val = parseInt(parts[1]);
-    if (isNaN(val) || val < 1) return "❌ Minimal 1";
+    if (isNaN(val) || val < 1) return "❌ Woy minimal 1 bro 😭";
     config.maxRequestsPerDay = val;
     saveRateConfig(config);
-    return `✅ Max per hari diubah ke ${val}x`;
+    return `✅ Beres! Max per hari sekarang ${val}x, udah gue simpan`;
   }
 
-  // !ai-ban [nomor] → ban user
   if (msg.startsWith("!ai-ban ")) {
     const target = parts[1];
     if (!config.bannedUsers.includes(target)) config.bannedUsers.push(target);
     saveRateConfig(config);
-    return `🚫 ${target} dibanned dari AI`;
+    return `🚫 Oke, ${target} udah gue kick dari fitur AI. Bye bye 👋`;
   }
 
-  // !ai-unban [nomor] → unban user
   if (msg.startsWith("!ai-unban ")) {
     const target = parts[1];
     config.bannedUsers = config.bannedUsers.filter(u => u !== target);
     saveRateConfig(config);
-    return `✅ ${target} di-unban`;
+    return `✅ ${target} udah gue maafin, boleh pake AI lagi nih`;
   }
 
-  // !ai-vip [nomor] → jadikan VIP
   if (msg.startsWith("!ai-vip ")) {
     const target = parts[1];
     if (!config.vipUsers.includes(target)) config.vipUsers.push(target);
     saveRateConfig(config);
-    return `⭐ ${target} dijadiin VIP (limit 2x)`;
+    return `⭐ Wih, ${target} sekarang jadi VIP! Limit lu 2x lipat dari yang biasa`;
   }
 
-  // !ai-pause → pause semua AI
+  if (msg.startsWith("!ai-unvip ")) {
+    const target = parts[1];
+    config.vipUsers = config.vipUsers.filter(u => u !== target);
+    saveRateConfig(config);
+    return `📉 Oke, ${target} udah gue turunin lagi ke user biasa`;
+  }
+
   if (msg === "!ai-pause") {
     config.globalPause = true;
     saveRateConfig(config);
-    return "⏸️ AI di-pause untuk semua user";
+    return "⏸️ AI gue pause dulu ya, semua user kena. Kasih tau kalo mau nyala lagi!";
   }
 
-  // !ai-resume → resume AI
   if (msg === "!ai-resume") {
     config.globalPause = false;
     saveRateConfig(config);
-    return "▶️ AI diaktifkan kembali";
+    return "▶️ Oke AI udah gue nyalain lagi, gaskeun!";
   }
 
-  // !ai-reset → reset semua counter sekarang
   if (msg === "!ai-reset") {
     requestCountDay.clear();
     requestCountHour.clear();
     lastRequestTime.clear();
     chatHistories.clear();
-    return "🔄 Semua counter & history AI direset!";
+    return "🔄 Beres! Semua counter sama history udah gue bersiin dari nol";
   }
 
-  // !ai-stats → lihat statistik pemakaian
   if (msg === "!ai-stats") {
     const stats = loadUsageStats();
     const today = new Date().toISOString().slice(0, 10);
@@ -382,64 +345,69 @@ function handleAdminCommand(userId, message) {
     const topUsers = Object.entries(stats.users)
       .sort((a, b) => b[1].today - a[1].today)
       .slice(0, 5)
-      .map(([uid, d]) => `  ${uid.slice(-4)}: ${d.today} hari ini / ${d.total} total`)
+      .map(([uid, d], i) => `  ${i+1}. ...${uid.slice(-4)}: ${d.today}x hari ini (total ${d.total}x)`)
       .join("\n");
 
-    return `📊 *Statistik AI Hari Ini*
+    return `📊 *Laporan Pemakaian AI*
 ━━━━━━━━━━━━━━━━━━
-Total request hari ini: ${todayCount}
-Total semua waktu: ${stats.totalRequests}
-Reset terakhir: ${new Date(stats.lastReset).toLocaleString('id-ID')}
+🔥 Hari ini: ${todayCount} request
+📈 Sepanjang masa: ${stats.totalRequests} request
+🕛 Reset terakhir: ${new Date(stats.lastReset).toLocaleString('id-ID')}
 
-Top user hari ini:
-${topUsers || "  (belum ada data)"}
+🏆 Top users hari ini:
+${topUsers || "  Belum ada yang pake hari ini"}
 ━━━━━━━━━━━━━━━━━━`;
   }
 
-  // !ai-config → lihat konfigurasi sekarang
   if (msg === "!ai-config") {
-    return `⚙️ *Konfigurasi Rate Limit AI*
+    return `⚙️ *Setting AI Sekarang*
 ━━━━━━━━━━━━━━━━━━
-Jeda minimum : ${config.globalLimitMs}ms
-Max/jam       : ${config.maxRequestsPerHour}x
-Max/hari      : ${config.maxRequestsPerDay}x
-Status AI     : ${config.globalPause ? "⏸️ PAUSE" : "▶️ AKTIF"}
-VIP users     : ${config.vipUsers.length} user
-Banned users  : ${config.bannedUsers.length} user
+⏱ Jeda minimum : ${config.globalLimitMs}ms
+📨 Max/jam       : ${config.maxRequestsPerHour}x
+📅 Max/hari      : ${config.maxRequestsPerDay}x
+🤖 Status AI     : ${config.globalPause ? "⏸️ LAGI PAUSE" : "▶️ AKTIF JALAN"}
+⭐ VIP users     : ${config.vipUsers.length} orang
+🚫 Banned users  : ${config.bannedUsers.length} orang
 ━━━━━━━━━━━━━━━━━━
-*Perintah admin:*
-!ai-setlimit [ms] | !ai-sethour [n] | !ai-setday [n]
-!ai-ban/unban/vip [nomor] | !ai-pause/resume | !ai-reset | !ai-stats`;
+📋 *Command lu:*
+!ai-setlimit [ms] — ubah jeda
+!ai-sethour [n] — max per jam
+!ai-setday [n] — max per hari
+!ai-ban/unban [no] — banned/bebasin
+!ai-vip/unvip [no] — kasih/cabut VIP
+!ai-pause/resume — matiin/nyalain
+!ai-reset — reset semua
+!ai-stats — lihat statistik`;
   }
 
-  return null; // Bukan command admin
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────
 // MAIN FUNCTION
 // ─────────────────────────────────────────────────────────────
 async function askAI(userMessage, userId = 'default') {
-  // Cek admin command dulu
   const adminReply = handleAdminCommand(userId, userMessage);
   if (adminReply !== null) return adminReply;
 
-  // Cek rate limit
   const limited = isRateLimited(userId);
-  if (limited === "banned")   return "🚫 Kamu kena banned dari fitur AI. Hubungi admin ya.";
-  if (limited === "paused")   return "⏸️ AI lagi di-pause sementara sama admin. Tunggu bentar ya!";
-  if (limited === "toofast")  return "Sabar dulu ya, jangan terlalu cepet ngetiknya 😅";
-  if (limited === "hourlimit") return `⏳ Kamu udah nyampe limit per jam (${loadRateConfig().maxRequestsPerHour}x). Tunggu sejam lagi ya!`;
-  if (limited === "daylimit") return `🛑 Limit harian kamu habis (${loadRateConfig().maxRequestsPerDay}x). Reset jam 00.00 WIB!`;
+  const cfg = loadRateConfig();
+
+  if (limited === "banned")    return "🚫 Waduh, lu kena banned dari fitur AI nih. Coba hubungin admin deh";
+  if (limited === "paused")    return "⏸️ Eh AI-nya lagi di-pause sama admin, tunggu bentar ya. Sabar!";
+  if (limited === "toofast")   return "Chill bro, jangan ngebut ngetiknya 😅 tunggu sebentar dulu";
+  if (limited === "hourlimit") return `⏳ Bro lu udah ${cfg.maxRequestsPerHour}x request sejam ini, kebanyakan! Tunggu sejam lagi ya 😬`;
+  if (limited === "daylimit")  return `🛑 Wah lu udah abis jatah hariannya (${cfg.maxRequestsPerDay}x), tunggu reset jam 00.00 WIB ya bestie!`;
 
   try {
     const { konteks, hariIni, besok, tanggal } = buildContextData();
 
     const systemPrompt =
-`Kamu asisten bot WA kelas bernama SYTEAM-BOT. Jawab santai, singkat, pakai bahasa gaul Indonesia. Jangan terlalu formal.
+`Lu adalah bot WA kelas namanya SYTEAM-BOT. Gaya ngomong lu santai, gaul, kayak temen deket. Pake bahasa gue-lu, bukan saya-anda. Singkat aja, nggak usah panjang-panjang. Boleh pake singkatan kayak "udh", "gak", "emg", "blm", dll.
 Hari ini: ${hariIni}, ${tanggal}. Besok: ${besok}.
 Jawab HANYA berdasarkan data ini, jangan ngarang data PR atau jadwal:
 ${konteks}
-Kalau data kosong bilang tidak ada. Kalau pertanyaan di luar data (pelajaran, umum, dll), jawab seperti biasa.`;
+Kalo data kosong bilang gak ada. Kalo pertanyaan di luar data (pelajaran umum, ngobrol, dll), jawab biasa aja kayak temen ngobrol.`;
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -453,7 +421,7 @@ Kalau data kosong bilang tidak ada. Kalau pertanyaan di luar data (pelajaran, um
         model: AI_MODEL,
         messages,
         max_tokens: 500,
-        temperature: 0.7,
+        temperature: 0.8,
       },
       {
         headers: {
@@ -471,17 +439,15 @@ Kalau data kosong bilang tidak ada. Kalau pertanyaan di luar data (pelajaran, um
 
     addToHistory(userId, 'user', userMessage);
     addToHistory(userId, 'assistant', reply);
-
-    // Catat usage
     recordUsage(userId);
 
     return reply;
 
   } catch (err) {
     console.error("❌ OpenRouter AI Error:", err.response?.data || err.message);
-    if (err.response?.status === 429) return "Lagi rame nih, coba lagi sebentar ya! ⏳";
-    if (err.code === 'ECONNABORTED') return "Koneksi timeout, coba lagi ya! 🙏";
-    return "Aduh, lagi ada gangguan nih. Coba lagi bentar ya! 🙏";
+    if (err.response?.status === 429) return "Aduh lagi overload nih, coba lagi bentar ya! ⏳";
+    if (err.code === 'ECONNABORTED')  return "Koneksinya timeout bro, coba lagi deh 🙏";
+    return "Lagi ada error nih gengs, bentar ya gue benerin dulu 🙏";
   }
 }
 
