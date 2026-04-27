@@ -173,6 +173,54 @@ function scheduleAutoReset() {
 scheduleAutoReset();
 
 // ─────────────────────────────────────────────────────────────
+// RESET PR OTOMATIS TIAP SABTU JAM 00.00 WIB  ← TAMBAHAN BARU
+// ─────────────────────────────────────────────────────────────
+function scheduleWeeklyPRReset() {
+  function msUntilSabtuMidnight() {
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    const day = now.getDay(); // 0=minggu, 1=senin, ..., 6=sabtu
+
+    // Hitung berapa hari lagi ke Sabtu
+    // Kalau hari ini Sabtu (6), tunggu 7 hari lagi (Sabtu depan)
+    const daysUntilSat = day === 6 ? 7 : (6 - day);
+
+    const nextSat = new Date(now);
+    nextSat.setDate(now.getDate() + daysUntilSat);
+    nextSat.setHours(0, 0, 0, 0); // jam 00.00 tepat
+
+    return nextSat.getTime() - now.getTime();
+  }
+
+  function doWeeklyReset() {
+    console.log("📅 Weekly reset PR & deadline jam 00.00 Sabtu WIB...");
+
+    // Reset semua PR + deadline pakai db.resetSemua() dari data.js
+    const berhasil = db.resetSemua();
+
+    if (berhasil) {
+      console.log("✅ PR & deadline berhasil di-reset ke default!");
+    } else {
+      console.log("❌ Gagal reset PR, cek error di data.js");
+    }
+
+    // Invalidate cache supaya buildContextData() langsung baca data baru
+    cachedContext  = null;
+    cacheTimestamp = 0;
+
+    // Jadwalkan lagi untuk Sabtu depan
+    const delay = msUntilSabtuMidnight();
+    console.log(`📅 Weekly PR reset berikutnya dijadwalkan ${Math.round(delay / 3600000)} jam lagi`);
+    setTimeout(doWeeklyReset, delay);
+  }
+
+  const delay = msUntilSabtuMidnight();
+  console.log(`📅 Weekly PR reset dijadwalkan ${Math.round(delay / 3600000)} jam lagi (Sabtu 00.00 WIB)`);
+  setTimeout(doWeeklyReset, delay);
+}
+
+scheduleWeeklyPRReset();
+
+// ─────────────────────────────────────────────────────────────
 // CACHE KONTEKS
 // ─────────────────────────────────────────────────────────────
 let cachedContext  = null;
