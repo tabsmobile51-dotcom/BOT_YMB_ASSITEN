@@ -1,11 +1,14 @@
-const { GoogleGenAI } = require("@google/genai");
 const path = require("path");
+const VOLUME_PATH   = '/app/auth_info';
+const PR_PATH       = path.join(VOLUME_PATH, 'pr.json');
+const DEADLINE_PATH = path.join(VOLUME_PATH, 'deadline.json');
+
+const { GoogleGenAI } = require("@google/genai");
 
 // ─────────────────────────────────────────────────────────────
 // KONFIGURASI
 // ─────────────────────────────────────────────────────────────
 const AI_MODEL = "gemini-3-flash-preview";
-const VOLUME_PATH   = '/app/auth_info';
 const { MAPEL_CONFIG, STRUKTUR_JADWAL, LABELS } = require('./pelajaran');
 const db = require('./data');
 
