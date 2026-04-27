@@ -223,11 +223,6 @@ async function initQuizScheduler(sock, botConfig, getConnected) {
 async function initSmartFeedbackScheduler(sock, botConfig) {
     console.log("✅ Scheduler Smart Feedback Aktif");
 
-    /**
-     * FIX: Ganti lastProcessedId in-memory dengan lastSent persisten,
-     * sehingga tidak double-kirim meski bot restart.
-     */
-
     setInterval(async () => {
         if (!botConfig || botConfig.smartFeedback === false) return;
 
@@ -246,7 +241,6 @@ async function initSmartFeedbackScheduler(sock, botConfig) {
         try {
             const votesArray = Object.values(kuisAktif.votes || {});
 
-            // Hitung suara berdasarkan nama opsi (bukan index)
             const counts = {};
             votesArray.forEach(v => {
                 const pilihan = Array.isArray(v) ? v : [v];
@@ -268,7 +262,6 @@ async function initSmartFeedbackScheduler(sock, botConfig) {
                 }
             }
 
-            // Tandai sudah diproses SEBELUM kirim pesan untuk hindari double-send
             writeLastSent({ ...lastSent, [feedbackID]: true });
             safeDeleteFile(KUIS_PATH);
 
@@ -373,30 +366,12 @@ async function initListPrMingguanScheduler(sock, botConfig) {
 async function sendJadwalBesokManual(sock, targetJid) {
     try {
         const now = getWIBDate();
-        const hariIni = now.getDay(); // 0=Minggu … 6=Sabtu
+        const hariIni = now.getDay(); 
 
-        /**
-         * FIX: Tidak kirim jika besok tidak ada sekolah.
-         * Jumat malam (5) → Sabtu libur ✓ skip
-         * Sabtu (6)       → Minggu libur ✓ skip
-         * Semua hari lain (0-4) → besok sekolah
-         */
         if (hariIni === 5 || hariIni === 6) return;
 
-        /**
-         * FIX: hariBesok dihitung konsisten dengan getWeekDates().
-         * getWeekDates() selalu mulai dari Senin (index 0).
-         * hariIni: 0(Minggu)=besok Senin → dates[0]
-         *          1(Senin)=besok Selasa  → dates[1]
-         *          2(Selasa)=besok Rabu   → dates[2]
-         *          3(Rabu)=besok Kamis    → dates[3]
-         *          4(Kamis)=besok Jumat   → dates[4]
-         *
-         * Rumus index dates: hariIni === 0 ? 0 : hariIni
-         * (karena Minggu(0) → Senin = dates[0], Senin(1) → Selasa = dates[1], dst.)
-         */
-        const datesIndex = hariIni === 0 ? 0 : hariIni; // index ke array dates[]
-        const hariBesok = hariIni === 0 ? 1 : hariIni + 1; // 1=Senin…5=Jumat (untuk JADWAL_PELAJARAN key)
+        const datesIndex = hariIni === 0 ? 0 : hariIni; 
+        const hariBesok = hariIni === 0 ? 1 : hariIni + 1; 
 
         const { JADWAL_PELAJARAN, MOTIVASI_SEKOLAH } = reloadConstants();
         const { dates } = getWeekDates();
@@ -421,9 +396,8 @@ async function sendJadwalBesokManual(sock, targetJid) {
         const currentData = db.getAll() || {};
         const dataPRBesok = currentData[daysKey[hariBesok]] || "";
 
-        // Pesan PR besok
         let teksPR = `📌 *DAFTAR LIST TUGAS PR* 📢\n📅 Hari: ${dayLabels[hariBesok].toUpperCase()} (${tglBesok})\n\n━━━━━━━━━━━━━━━━━━━━\n\n`;
-        if (!dataPRBesok || dataPRBesok.includes("Belum ada tugas") || dataPRBesok.includes("Tidak ada PR")) {
+        if (!dataPRBesok || dataPRBesok.toLowerCase().includes("belum ada tugas") || dataPRBesok.toLowerCase().includes("tidak ada pr")) {
             teksPR += `└─ ✅ _Tidak ada PR_\n\n`;
         } else {
             const updatedTugas = dataPRBesok.replace(
@@ -437,12 +411,15 @@ async function sendJadwalBesokManual(sock, targetJid) {
         await sock.sendMessage(targetJid || ID_GRUP_TUJUAN, { text: teksPR });
         await new Promise(resolve => setTimeout(resolve, 5000));
 
-        // Pesan jadwal + keterangan PR per mapel
+        // FIX: Perbaikan Logika Pengecekan PR Berdasarkan Emoji
         const jadwalFinal = rawMapel.map(mapel => {
-            const emojiOnly = mapel.match(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}]/u);
+            // Ambil semua emoji dari baris mapel (statis)
+            const matches = mapel.match(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}]/gu);
             let adaPR = false;
-            if (dataPRBesok && !dataPRBesok.toLowerCase().includes("belum ada tugas") && emojiOnly) {
-                adaPR = dataPRBesok.includes(emojiOnly[0]);
+
+            if (dataPRBesok && !dataPRBesok.toLowerCase().includes("belum ada tugas") && !dataPRBesok.toLowerCase().includes("tidak ada pr") && matches) {
+                // Cek apakah salah satu emoji dari mapel ada di dalam dataPRBesok
+                adaPR = matches.some(emoji => dataPRBesok.includes(emoji));
             }
             return `${mapel} ➝ ${adaPR ? "ada pr" : "gak ada pr"}`;
         }).join('\n');
