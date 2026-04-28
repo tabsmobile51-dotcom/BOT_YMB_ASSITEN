@@ -8,7 +8,7 @@ const path = require("path");
 // Daftar & ambil API key di: https://aistudio.google.com
 // ─────────────────────────────────────────────────────────────
 const GEMINI_API_KEY = "AIzaSyADSEkUSSwrYVVLuwcYZW1PT6PMpSlMTRg"; // ← isi API key Gemini lu di sini
-const AI_MODEL       = "gemini-2.0-flash";                // Model Gemini gratis & cepat
+const AI_MODEL       = "gemini-3-flash-preview";                // Model Gemini gratis & cepat
 const VOLUME_PATH        = '/app/auth_info';
 const PR_PATH            = path.join(VOLUME_PATH, 'pr.json');
 const DEADLINE_PATH      = path.join(VOLUME_PATH, 'deadline.json');
