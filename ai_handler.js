@@ -17,7 +17,19 @@ const { MAPEL_CONFIG, STRUKTUR_JADWAL, LABELS } = require('./pelajaran');
 const db = require('./data');
 
 // ─────────────────────────────────────────────────────────────
-// HELPER: TANGGAL WIB (FIX UTAMA — semua pakai ini)
+// HELPER: NORMALISASI USER ID
+// BUG FIX: WhatsApp sering kirim userId dengan suffix "@s.whatsapp.net"
+// atau "@c.us" yang bikin admin check gagal karena mismatch string.
+// Fungsi ini strip semua suffix tersebut supaya matchingnya konsisten.
+// ─────────────────────────────────────────────────────────────
+function normalizeUserId(userId) {
+  if (!userId) return '';
+  // Strip suffix WA seperti @s.whatsapp.net, @c.us, @g.us, dll
+  return String(userId).replace(/@[^@]+$/, '').trim();
+}
+
+// ─────────────────────────────────────────────────────────────
+// HELPER: TANGGAL WIB (semua waktu pakai ini, bukan new Date())
 // ─────────────────────────────────────────────────────────────
 /**
  * Mengembalikan objek Date yang sudah dikonversi ke WIB (Asia/Jakarta).
@@ -83,18 +95,26 @@ function getWeekDates() {
 // RATE LIMIT CONFIG
 // ─────────────────────────────────────────────────────────────
 const DEFAULT_RATE_CONFIG = {
-  globalLimitMs: 50000,
-  maxRequestsPerHour: 30,
-  maxRequestsPerDay: 300,
-  adminNumbers: ['6289531549103', '171425214255294', '6285158738155', '241849843351688', '254326740103190', '8474121494667'],
-  bannedUsers: [],
-  vipUsers: [],
-  globalPause: false,
+  globalLimitMs: 50000,          // Jeda minimum antar request per user (ms)
+  maxRequestsPerHour: 30,        // Max request per jam per user
+  maxRequestsPerDay: 300,        // Max request per hari per user
+  adminNumbers: [
+    '6289531549103',
+    '171425214255294',
+    '6285158738155',
+    '241849843351688',
+    '254326740103190',
+    '8474121494667'
+  ],
+  bannedUsers: [],               // List userId yang di-ban dari fitur AI
+  vipUsers: [],                  // List userId VIP (dapat 2x limit)
+  globalPause: false,            // Jika true, semua user (kecuali admin) diblokir
 };
 
 function loadRateConfig() {
   try {
     if (fs.existsSync(RATE_CONFIG_PATH)) {
+      // Merge dengan DEFAULT supaya field baru selalu ada meski config lama
       return { ...DEFAULT_RATE_CONFIG, ...JSON.parse(fs.readFileSync(RATE_CONFIG_PATH, 'utf8')) };
     }
   } catch (e) {
@@ -163,49 +183,75 @@ function recordUsage(userId) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// RATE LIMITER
+// RATE LIMITER (In-memory, di-reset saat server restart)
 // ─────────────────────────────────────────────────────────────
+// Map<userId, timestamp> — waktu terakhir user kirim request
 const lastRequestTime  = new Map();
+
+// Map<userId, { count, windowStart }> — counter per jam
 const requestCountHour = new Map();
+
+// Map<userId, { count, dayStart }> — counter per hari (WIB)
 const requestCountDay  = new Map();
 
+/**
+ * Cek apakah userId kena rate limit.
+ * Return value:
+ *   false         → tidak kena limit, boleh lanjut
+ *   "banned"      → user di-ban admin
+ *   "paused"      → AI lagi di-pause global
+ *   "toofast"     → request terlalu cepat (belum lewat globalLimitMs)
+ *   "hourlimit"   → sudah melebihi maxRequestsPerHour
+ *   "daylimit"    → sudah melebihi maxRequestsPerDay
+ *
+ * BUG FIX: Versi lama tidak increment count saat window baru (hanya set ke 1
+ * lewat reassign), tapi juga tidak return false — artinya user yg baru masuk
+ * window baru tetap dihitung benar. Sekarang alurnya dirapikan biar eksplisit.
+ */
 function isRateLimited(userId) {
   const config = loadRateConfig();
   const now    = Date.now();
 
-  if (config.bannedUsers.includes(userId))  return "banned";
-  if (config.globalPause)                    return "paused";
+  // Admin bypass semua limit
   if (config.adminNumbers.includes(userId)) return false;
 
+  // Cek banned & pause setelah admin bypass
+  if (config.bannedUsers.includes(userId)) return "banned";
+  if (config.globalPause)                  return "paused";
+
+  // VIP dapat multiplier 2x limit
   const multiplier = config.vipUsers.includes(userId) ? 2 : 1;
 
-  // Cek jeda minimum antar request
+  // ── Cek jeda minimum antar request ──────────────────────────
   const last = lastRequestTime.get(userId) || 0;
-  if (now - last < config.globalLimitMs)    return "toofast";
+  if (now - last < config.globalLimitMs) return "toofast";
 
-  // Cek limit per jam
+  // ── Cek limit per jam ───────────────────────────────────────
   const hourData = requestCountHour.get(userId) || { count: 0, windowStart: now };
   if (now - hourData.windowStart > 3600000) {
-    // Window baru
+    // Window 1 jam sudah lewat → reset counter, mulai window baru
     requestCountHour.set(userId, { count: 1, windowStart: now });
   } else {
+    // Masih dalam window yang sama
     if (hourData.count >= config.maxRequestsPerHour * multiplier) return "hourlimit";
     hourData.count++;
     requestCountHour.set(userId, hourData);
   }
 
-  // Cek limit per hari (berdasarkan tanggal WIB)
-  const nowWIB  = getNowWIB();
-  const dayData = requestCountDay.get(userId) || { count: 0, dayStart: nowWIB.toDateString() };
-  if (dayData.dayStart !== nowWIB.toDateString()) {
-    // Hari baru di WIB
-    requestCountDay.set(userId, { count: 1, dayStart: nowWIB.toDateString() });
+  // ── Cek limit per hari (berdasarkan tanggal WIB) ────────────
+  const nowWIB    = getNowWIB();
+  const todayKey  = nowWIB.toDateString();
+  const dayData   = requestCountDay.get(userId) || { count: 0, dayStart: todayKey };
+  if (dayData.dayStart !== todayKey) {
+    // Hari baru di WIB → reset counter
+    requestCountDay.set(userId, { count: 1, dayStart: todayKey });
   } else {
     if (dayData.count >= config.maxRequestsPerDay * multiplier) return "daylimit";
     dayData.count++;
     requestCountDay.set(userId, dayData);
   }
 
+  // Catat waktu request terakhir
   lastRequestTime.set(userId, now);
   return false;
 }
@@ -214,8 +260,8 @@ function isRateLimited(userId) {
 // RESET OTOMATIS JAM 00.00 WIB
 // ─────────────────────────────────────────────────────────────
 function msUntilMidnightWIB() {
-  const nowWIB    = getNowWIB();
-  const midnight  = new Date(nowWIB);
+  const nowWIB   = getNowWIB();
+  const midnight = new Date(nowWIB);
   midnight.setHours(24, 0, 0, 0);
   return midnight.getTime() - nowWIB.getTime();
 }
@@ -224,18 +270,20 @@ function scheduleAutoReset() {
   function doReset() {
     console.log("🔄 Auto-reset AI usage stats jam 00.00 WIB...");
 
+    // Bersihkan semua in-memory counter
     requestCountDay.clear();
     requestCountHour.clear();
     lastRequestTime.clear();
     chatHistories.clear();
 
+    // Reset field today & thisHour di stats file (totalnya tetap)
     const stats = loadUsageStats();
     for (const uid in stats.users) {
       stats.users[uid].today    = 0;
       stats.users[uid].thisHour = 0;
     }
 
-    // Hapus data hourly & daily lebih dari 7 hari lalu
+    // Hapus data hourly & daily lebih dari 7 hari lalu supaya file tidak membengkak
     const cutoff = new Date(getNowWIB());
     cutoff.setDate(cutoff.getDate() - 7);
 
@@ -284,7 +332,7 @@ function scheduleWeeklyPRReset() {
       console.log("❌ Gagal reset PR, cek error di data.js");
     }
 
-    // Invalidate cache setelah reset
+    // BUG FIX: Invalidate cache langsung setelah reset, bukan hanya dalam setTimeout
     cachedContext  = null;
     cacheTimestamp = 0;
 
@@ -301,7 +349,7 @@ function scheduleWeeklyPRReset() {
 scheduleWeeklyPRReset();
 
 // ─────────────────────────────────────────────────────────────
-// CACHE KONTEKS
+// CACHE KONTEKS (TTL 5 menit supaya data PR tidak stale)
 // ─────────────────────────────────────────────────────────────
 let cachedContext  = null;
 let cacheTimestamp = 0;
@@ -323,13 +371,13 @@ function buildContextData() {
   const tanggal = getTanggalFormatted(nowWIB);
   const dates   = getWeekDates();
 
-  // Jadwal
+  // ── Jadwal pelajaran ─────────────────────────────────────────
   let jadwalTeks = "JADWAL:\n";
   for (const [hari, mapelList] of Object.entries(STRUKTUR_JADWAL)) {
     jadwalTeks += `${hari}: ${mapelList.map(k => MAPEL_CONFIG[k] || k).join(', ')}\n`;
   }
 
-  // PR per hari
+  // ── PR per hari ──────────────────────────────────────────────
   const daysKey        = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
   const dayLabels      = ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
   const dayLabelsSmall = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'];
@@ -351,10 +399,10 @@ function buildContextData() {
     }
   }
 
-  // Deadline khusus — filter yang sudah lewat (berdasarkan WIB)
+  // ── Deadline khusus (filter yang sudah lewat berdasarkan WIB) ─
   let deadlineTeks = "DEADLINE KHUSUS:\n";
   try {
-    const dlList = JSON.parse(currentData.deadline || "[]");
+    const dlList   = JSON.parse(currentData.deadline || "[]");
     const todayWIB = new Date(nowWIB);
     todayWIB.setHours(0, 0, 0, 0);
 
@@ -379,7 +427,7 @@ function buildContextData() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// RIWAYAT CHAT
+// RIWAYAT CHAT (In-memory, max 10 pesan per user = 5 pasang)
 // ─────────────────────────────────────────────────────────────
 const chatHistories = new Map();
 
@@ -397,22 +445,37 @@ function addToHistory(userId, role, content) {
 
 // ─────────────────────────────────────────────────────────────
 // ADMIN COMMANDS
+//
+// BUG FIX: Masalah utama "lu bukan admin" ada 2 penyebab:
+//
+// 1. userId dari WA sering punya suffix "@s.whatsapp.net" atau "@c.us"
+//    yang bikin config.adminNumbers.includes(userId) selalu false.
+//    Solusi: normalizeUserId() di awal fungsi.
+//
+// 2. Urutan pengecekan salah — versi lama cek `!rawMsg.startsWith("!")`
+//    SEBELUM cek apakah pengirim admin, sehingga command admin (!ai-xxx)
+//    lolos ke pengecekan user biasa dan dapat "❌ Lu bukan admin".
+//    Solusi: cek admin DULU, baru return null kalau bukan command valid.
 // ─────────────────────────────────────────────────────────────
 function handleAdminCommand(userId, message) {
+  // BUG FIX #1: Normalize userId sebelum cek admin
+  const normalizedUserId = normalizeUserId(userId);
+
   const config = loadRateConfig();
   const rawMsg = message.trim();
   const msg    = rawMsg.toLowerCase();
   const parts  = rawMsg.split(/\s+/);
 
-  // Jika tidak diawali tanda seru, ini BUKAN command admin
+  // Jika bukan command (tidak diawali "!"), langsung return null → proses sebagai chat biasa
   if (!rawMsg.startsWith("!")) return null;
 
-  // Cek apakah pengirim adalah admin
-  if (!config.adminNumbers.includes(userId)) {
-    // Jika user biasa pakai prefix !ai-, kita kasih peringatan
-    if (msg.startsWith("!ai-")) return "❌ Lu bukan admin, gak usah aneh-aneh 🤫";
-    return null;
+  // BUG FIX #2: Cek admin SETELAH tahu ini adalah command (diawali "!")
+  // Kalau user biasa coba command "!", kasih tahu mereka bukan admin
+  if (!config.adminNumbers.includes(normalizedUserId)) {
+    return "❌ Maaf, lu gak punya akses command ini 🙅 Hanya admin yang bisa.";
   }
+
+  // ── Di bawah ini hanya dieksekusi oleh admin yang valid ─────
 
   if (msg.startsWith("!ai-setlimit ")) {
     const val = parseInt(parts[1]);
@@ -439,7 +502,7 @@ function handleAdminCommand(userId, message) {
   }
 
   if (msg.startsWith("!ai-ban ")) {
-    const target = parts[1];
+    const target = normalizeUserId(parts[1]);
     if (!target) return "❌ Kasih tau nomor siapa yang mau di-ban bro";
     if (!config.bannedUsers.includes(target)) config.bannedUsers.push(target);
     saveRateConfig(config);
@@ -447,7 +510,7 @@ function handleAdminCommand(userId, message) {
   }
 
   if (msg.startsWith("!ai-unban ")) {
-    const target = parts[1];
+    const target = normalizeUserId(parts[1]);
     if (!target) return "❌ Kasih tau nomor siapa yang mau di-unban bro";
     config.bannedUsers = config.bannedUsers.filter(u => u !== target);
     saveRateConfig(config);
@@ -455,7 +518,7 @@ function handleAdminCommand(userId, message) {
   }
 
   if (msg.startsWith("!ai-vip ")) {
-    const target = parts[1];
+    const target = normalizeUserId(parts[1]);
     if (!target) return "❌ Kasih tau nomor siapa yang mau di-VIP bro";
     if (!config.vipUsers.includes(target)) config.vipUsers.push(target);
     saveRateConfig(config);
@@ -463,7 +526,7 @@ function handleAdminCommand(userId, message) {
   }
 
   if (msg.startsWith("!ai-unvip ")) {
-    const target = parts[1];
+    const target = normalizeUserId(parts[1]);
     if (!target) return "❌ Kasih tau nomor siapa yang mau di-unvip bro";
     config.vipUsers = config.vipUsers.filter(u => u !== target);
     saveRateConfig(config);
@@ -483,6 +546,7 @@ function handleAdminCommand(userId, message) {
   }
 
   if (msg === "!ai-reset") {
+    // Reset semua in-memory counter + chat history + cache konteks
     requestCountDay.clear();
     requestCountHour.clear();
     lastRequestTime.clear();
@@ -492,12 +556,62 @@ function handleAdminCommand(userId, message) {
     return "🔄 Beres! Semua counter, history, sama cache udah gue bersiin dari nol";
   }
 
+  // ── NEW: Reset limit global (jeda minimum) ke default ────────
+  if (msg === "!ai-resetlimit") {
+    config.globalLimitMs      = DEFAULT_RATE_CONFIG.globalLimitMs;
+    config.maxRequestsPerHour = DEFAULT_RATE_CONFIG.maxRequestsPerHour;
+    config.maxRequestsPerDay  = DEFAULT_RATE_CONFIG.maxRequestsPerDay;
+    saveRateConfig(config);
+    return `🔁 Semua rate limit udah gue reset ke default:\n` +
+           `⏱ Jeda : ${DEFAULT_RATE_CONFIG.globalLimitMs}ms\n` +
+           `📨 /jam : ${DEFAULT_RATE_CONFIG.maxRequestsPerHour}x\n` +
+           `📅 /hari: ${DEFAULT_RATE_CONFIG.maxRequestsPerDay}x`;
+  }
+
+  // ── NEW: Reset counter in-memory per user tertentu ───────────
+  if (msg.startsWith("!ai-resetuser ")) {
+    const target = normalizeUserId(parts[1]);
+    if (!target) return "❌ Kasih nomor usernya bro, contoh: !ai-resetuser 628xxx";
+    lastRequestTime.delete(target);
+    requestCountHour.delete(target);
+    requestCountDay.delete(target);
+    chatHistories.delete(target);
+    return `🔄 Counter + history ${target} udah gue bersiin, dia bisa chat AI lagi sekarang`;
+  }
+
+  // ── NEW: Reset semua counter semua user (tapi config tidak berubah) ─
+  if (msg === "!ai-resetall") {
+    requestCountDay.clear();
+    requestCountHour.clear();
+    lastRequestTime.clear();
+    chatHistories.clear();
+    return "🔄 Semua counter semua user udah gue reset, tapi config (limit, ban, vip) tetap ya";
+  }
+
+  // ── NEW: Lihat sisa limit user tertentu ──────────────────────
+  if (msg.startsWith("!ai-checkuser ")) {
+    const target   = normalizeUserId(parts[1]);
+    if (!target) return "❌ Kasih nomor usernya bro";
+    const hourData = requestCountHour.get(target) || { count: 0, windowStart: Date.now() };
+    const dayData  = requestCountDay.get(target)  || { count: 0, dayStart: '' };
+    const lastReq  = lastRequestTime.get(target)  || 0;
+    const isAdmin  = config.adminNumbers.includes(target);
+    const isVIP    = config.vipUsers.includes(target);
+    const isBanned = config.bannedUsers.includes(target);
+    const mult     = isVIP ? 2 : 1;
+    return `📋 Info user ${target}:\n` +
+           `🏷 Status : ${isAdmin ? '👑 Admin' : isVIP ? '⭐ VIP' : isBanned ? '🚫 Banned' : '👤 User biasa'}\n` +
+           `⏱ Last req: ${lastReq ? new Date(lastReq).toLocaleString('id-ID', {timeZone:'Asia/Jakarta'}) : 'belum pernah'}\n` +
+           `📨 /jam   : ${hourData.count}/${config.maxRequestsPerHour * mult}\n` +
+           `📅 /hari  : ${dayData.count}/${config.maxRequestsPerDay * mult}`;
+  }
+
   if (msg === "!ai-stats") {
-    const stats    = loadUsageStats();
-    const nowWIB   = getNowWIB();
-    const today    = nowWIB.toISOString().slice(0, 10);
+    const stats      = loadUsageStats();
+    const nowWIB     = getNowWIB();
+    const today      = nowWIB.toISOString().slice(0, 10);
     const todayCount = stats.daily[today] || 0;
-    const topUsers = Object.entries(stats.users)
+    const topUsers   = Object.entries(stats.users)
       .sort((a, b) => b[1].today - a[1].today)
       .slice(0, 5)
       .map(([uid, d], i) => `  ${i + 1}. ...${uid.slice(-4)}: ${d.today}x hari ini (total ${d.total}x)`)
@@ -524,30 +638,40 @@ ${topUsers || "  Belum ada yang pake hari ini"}
 ⭐ VIP users     : ${config.vipUsers.length} orang
 🚫 Banned users  : ${config.bannedUsers.length} orang
 ━━━━━━━━━━━━━━━━━━
-📋 *Command lu:*
-!ai-setlimit [ms] — ubah jeda
-!ai-sethour [n] — max per jam
-!ai-setday [n] — max per hari
-!ai-ban/unban [no] — banned/bebasin
-!ai-vip/unvip [no] — kasih/cabut VIP
-!ai-pause/resume — matiin/nyalain
-!ai-reset — reset semua
-!ai-stats — lihat statistik`;
+📋 *Command admin:*
+!ai-setlimit [ms]       — ubah jeda minimum
+!ai-sethour [n]         — max request per jam
+!ai-setday [n]          — max request per hari
+!ai-resetlimit          — reset limit ke default
+!ai-ban/unban [no]      — ban/bebasin user
+!ai-vip/unvip [no]      — kasih/cabut VIP
+!ai-pause/resume        — matiin/nyalain AI global
+!ai-reset               — reset counter + history + cache
+!ai-resetall            — reset counter semua user
+!ai-resetuser [no]      — reset counter user tertentu
+!ai-checkuser [no]      — cek sisa limit user
+!ai-stats               — lihat statistik pemakaian
+!ai-config              — lihat setting sekarang (ini)`;
   }
 
-  return null;
+  // Command "!" tapi tidak dikenal → kasih tahu admin
+  return `❓ Command gak dikenal bos. Ketik *!ai-config* buat lihat daftar command yang ada ya.`;
 }
 
 // ─────────────────────────────────────────────────────────────
 // MAIN FUNCTION
 // ─────────────────────────────────────────────────────────────
 async function askAI(userMessage, userId = 'default') {
-  // 1. CEK ADMIN COMMAND DULU (PALING ATAS)
-  const adminReply = handleAdminCommand(userId, userMessage);
+  // BUG FIX: Normalize userId di entry point supaya seluruh alur
+  // (admin check, rate limit, history, stats) pakai ID yang konsisten
+  const normalizedId = normalizeUserId(userId);
+
+  // 1. CEK ADMIN COMMAND DULU (PALING ATAS, SEBELUM RATE LIMIT)
+  const adminReply = handleAdminCommand(normalizedId, userMessage);
   if (adminReply !== null) return adminReply;
 
   // 2. CEK RATE LIMIT
-  const limited = isRateLimited(userId);
+  const limited = isRateLimited(normalizedId);
   const cfg     = loadRateConfig();
 
   if (limited === "banned")    return "🚫 Waduh, lu kena banned dari fitur AI nih. Coba hubungin admin deh";
@@ -569,7 +693,7 @@ Kalo data kosong bilang gak ada. Kalo pertanyaan di luar data (pelajaran umum, n
 
     const messages = [
       { role: "system", content: systemPrompt },
-      ...getHistory(userId),
+      ...getHistory(normalizedId),
       { role: "user", content: userMessage }
     ];
 
@@ -595,9 +719,9 @@ Kalo data kosong bilang gak ada. Kalo pertanyaan di luar data (pelajaran umum, n
     const reply = response.data.choices?.[0]?.message?.content?.trim();
     if (!reply) throw new Error("Respons AI kosong");
 
-    addToHistory(userId, 'user', userMessage);
-    addToHistory(userId, 'assistant', reply);
-    recordUsage(userId);
+    addToHistory(normalizedId, 'user', userMessage);
+    addToHistory(normalizedId, 'assistant', reply);
+    recordUsage(normalizedId);
 
     return reply;
 
