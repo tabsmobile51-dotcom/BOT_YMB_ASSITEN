@@ -83,7 +83,7 @@ function getWeekDates() {
 // RATE LIMIT CONFIG
 // ─────────────────────────────────────────────────────────────
 const DEFAULT_RATE_CONFIG = {
-  globalLimitMs: 3000,
+  globalLimitMs: 1000000,
   maxRequestsPerHour: 30,
   maxRequestsPerDay: 300,
   adminNumbers: ["6289531549103", "171425214255294"],
