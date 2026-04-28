@@ -83,10 +83,10 @@ function getWeekDates() {
 // RATE LIMIT CONFIG
 // ─────────────────────────────────────────────────────────────
 const DEFAULT_RATE_CONFIG = {
-  globalLimitMs: 1000000,
+  globalLimitMs: 5000-,
   maxRequestsPerHour: 30,
   maxRequestsPerDay: 300,
-  adminNumbers: ["6289531549103", "171425214255294"],
+  adminNumbers: ['6289531549103', '171425214255294', '6285158738155', '241849843351688', '254326740103190', '8474121494667'],
   bannedUsers: [],
   vipUsers: [],
   globalPause: false,
@@ -174,7 +174,7 @@ function isRateLimited(userId) {
   const now    = Date.now();
 
   if (config.bannedUsers.includes(userId))  return "banned";
-  if (config.globalPause)                   return "paused";
+  if (config.globalPause)                    return "paused";
   if (config.adminNumbers.includes(userId)) return false;
 
   const multiplier = config.vipUsers.includes(userId) ? 2 : 1;
@@ -330,8 +330,8 @@ function buildContextData() {
   }
 
   // PR per hari
-  const daysKey       = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
-  const dayLabels     = ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
+  const daysKey        = ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
+  const dayLabels      = ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
   const dayLabelsSmall = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'];
 
   let prTeks = "PR/TUGAS:\n";
@@ -400,10 +400,19 @@ function addToHistory(userId, role, content) {
 // ─────────────────────────────────────────────────────────────
 function handleAdminCommand(userId, message) {
   const config = loadRateConfig();
-  if (!config.adminNumbers.includes(userId)) return null;
+  const rawMsg = message.trim();
+  const msg    = rawMsg.toLowerCase();
+  const parts  = rawMsg.split(/\s+/);
 
-  const msg   = message.trim().toLowerCase();
-  const parts = message.trim().split(" ");
+  // Jika tidak diawali tanda seru, ini BUKAN command admin
+  if (!rawMsg.startsWith("!")) return null;
+
+  // Cek apakah pengirim adalah admin
+  if (!config.adminNumbers.includes(userId)) {
+    // Jika user biasa pakai prefix !ai-, kita kasih peringatan
+    if (msg.startsWith("!ai-")) return "❌ Lu bukan admin, gak usah aneh-aneh 🤫";
+    return null;
+  }
 
   if (msg.startsWith("!ai-setlimit ")) {
     const val = parseInt(parts[1]);
@@ -533,11 +542,11 @@ ${topUsers || "  Belum ada yang pake hari ini"}
 // MAIN FUNCTION
 // ─────────────────────────────────────────────────────────────
 async function askAI(userMessage, userId = 'default') {
-  // Cek admin command dulu
+  // 1. CEK ADMIN COMMAND DULU (PALING ATAS)
   const adminReply = handleAdminCommand(userId, userMessage);
   if (adminReply !== null) return adminReply;
 
-  // Cek rate limit
+  // 2. CEK RATE LIMIT
   const limited = isRateLimited(userId);
   const cfg     = loadRateConfig();
 
@@ -547,6 +556,7 @@ async function askAI(userMessage, userId = 'default') {
   if (limited === "hourlimit") return `⏳ Bro lu udah ${cfg.maxRequestsPerHour}x request sejam ini, kebanyakan! Tunggu sejam lagi ya 😬`;
   if (limited === "daylimit")  return `🛑 Wah lu udah abis jatah hariannya (${cfg.maxRequestsPerDay}x), tunggu reset jam 00.00 WIB ya bestie!`;
 
+  // 3. PROSES AI
   try {
     const { konteks, hariIni, besok, tanggal } = buildContextData();
 
