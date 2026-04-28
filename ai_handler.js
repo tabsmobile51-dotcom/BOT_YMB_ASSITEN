@@ -1,12 +1,14 @@
-const axios = require("axios");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const fs = require("fs");
 const path = require("path");
 
 // ─────────────────────────────────────────────────────────────
 // KONFIGURASI
+// Pake Google Gemini API — gratis 1.500 req/hari, 15 req/menit
+// Daftar & ambil API key di: https://aistudio.google.com
 // ─────────────────────────────────────────────────────────────
-const OPENROUTER_API_KEY = "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";
-const AI_MODEL           = "inclusionai/ling-2.6-1t:free";
+const GEMINI_API_KEY = "AIzaSyADSEkUSSwrYVVLuwcYZW1PT6PMpSlMTRg"; // ← isi API key Gemini lu di sini
+const AI_MODEL       = "gemini-2.0-flash";                // Model Gemini gratis & cepat
 const VOLUME_PATH        = '/app/auth_info';
 const PR_PATH            = path.join(VOLUME_PATH, 'pr.json');
 const DEADLINE_PATH      = path.join(VOLUME_PATH, 'deadline.json');
@@ -691,32 +693,31 @@ Jawab HANYA berdasarkan data ini, jangan ngarang data PR atau jadwal:
 ${konteks}
 Kalo data kosong bilang gak ada. Kalo pertanyaan di luar data (pelajaran umum, ngobrol, dll), jawab biasa aja kayak temen ngobrol.`;
 
-    const messages = [
-      { role: "system", content: systemPrompt },
-      ...getHistory(normalizedId),
-      { role: "user", content: userMessage }
-    ];
+    // Bangun history chat dalam format Gemini
+    // Gemini tidak support role "system" langsung di history,
+    // jadi system prompt digabung ke pesan user pertama
+    const history = getHistory(normalizedId);
+    const geminiHistory = history.map(msg => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.content }]
+    }));
 
-    const response = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model: AI_MODEL,
-        messages,
-        max_tokens: 500,
+    // Init Gemini client & mulai chat session dengan history yang ada
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({
+      model: AI_MODEL,
+      systemInstruction: systemPrompt,   // system prompt lewat sini
+      generationConfig: {
+        maxOutputTokens: 500,
         temperature: 0.8,
       },
-      {
-        headers: {
-          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://syteam-bot.railway.app",
-          "X-Title": "SYTEAM-BOT"
-        },
-        timeout: 30000
-      }
-    );
+    });
 
-    const reply = response.data.choices?.[0]?.message?.content?.trim();
+    const chat = model.startChat({ history: geminiHistory });
+
+    // Kirim pesan user terbaru
+    const result = await chat.sendMessage(userMessage);
+    const reply  = result.response.text()?.trim();
     if (!reply) throw new Error("Respons AI kosong");
 
     addToHistory(normalizedId, 'user', userMessage);
@@ -726,9 +727,10 @@ Kalo data kosong bilang gak ada. Kalo pertanyaan di luar data (pelajaran umum, n
     return reply;
 
   } catch (err) {
-    console.error("❌ OpenRouter AI Error:", err.response?.data || err.message);
-    if (err.response?.status === 429) return "Aduh lagi overload nih, coba lagi bentar ya! ⏳";
-    if (err.code === 'ECONNABORTED')  return "Koneksinya timeout bro, coba lagi deh 🙏";
+    console.error("❌ Gemini AI Error:", err.message || err);
+    // 429 = quota harian habis (1.500/hari untuk free tier)
+    if (err.status === 429 || err.message?.includes('429')) return "Server AI lagi rame bro, tunggu bentar terus coba lagi ya 🙏";
+    if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) return "Koneksinya timeout bro, coba lagi deh 🙏";
     return "Lagi ada error nih gengs, bentar ya gue benerin dulu 🙏";
   }
 }
